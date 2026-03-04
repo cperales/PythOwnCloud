@@ -1,6 +1,7 @@
 # Folders
 env/
 data/
+.claude/
+__pycache__/
 
 # Files
-

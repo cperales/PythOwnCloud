@@ -64,7 +64,7 @@ The checksum is computed at read time. This is intentionally simple — Phase 2 
 ## Storage Layout
 
 ```
-/mnt/external-disk/ocm-data/       ← mounted as /data inside the container
+/mnt/external-disk/poc-data/       ← mounted as /data inside the container
 ├── documents/
 │   ├── notes.md
 │   └── taxes/
@@ -78,7 +78,7 @@ The checksum is computed at read time. This is intentionally simple — Phase 2 
         └── track01.mp3
 ```
 
-The API preserves whatever directory structure you create. There are no special folders, no metadata sidecar files, no `.ocm/` hidden directories. Files are stored exactly as-is — you can always `ls` the drive directly and see everything.
+The API preserves whatever directory structure you create. There are no special folders, no metadata sidecar files, no `.poc/` hidden directories. Files are stored exactly as-is — you can always `ls` the drive directly and see everything.
 
 
 ## Security
@@ -121,7 +121,7 @@ curl -s $BASE/health | python3 -m json.tool
 curl -X POST -H "X-API-Key: $KEY" $BASE/mkdir/test
 
 # Upload a file
-echo "hello from OCM" > /tmp/hello.txt
+echo "hello from POC" > /tmp/hello.txt
 curl -X PUT -H "X-API-Key: $KEY" -F "file=@/tmp/hello.txt" $BASE/files/test/hello.txt
 
 # List directory

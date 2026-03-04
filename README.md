@@ -10,7 +10,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 # 2. Create .env from template
 cp .env.example .env
-# Edit .env and set your OCM_API_KEY
+# Edit .env and set your POC_API_KEY
 
 # 3. Adjust docker-compose.yml volume path to your external drive
 
@@ -36,13 +36,13 @@ KEY="your-api-key-here"
 curl -s -H "X-API-Key: $KEY" http://localhost:8000/files/ | python3 -m json.tool
 
 # List a subdirectory
-curl -s -H "X-API-Key: $KEY" http://localhost:8000/files/photos/2025/ | python3 -m json.tool
+curl -s -H "X-API-Key: $KEY" http://localhost:8000/files/documents/ | python3 -m json.tool
 ```
 
 ### Download a file
 
 ```bash
-curl -H "X-API-Key: $KEY" http://localhost:8000/files/photos/sunset.jpg -o sunset.jpg
+curl -H "X-API-Key: $KEY" http://localhost:8000/files/documents/myfile.txt -o myfile.txt
 ```
 
 ### Upload a file
@@ -63,7 +63,7 @@ curl -X DELETE -H "X-API-Key: $KEY" http://localhost:8000/files/documents/myfile
 ### Create a directory
 
 ```bash
-curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/mkdir/photos/2025/march
+curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/mkdir/documents/2026/
 ```
 
 ## Architecture

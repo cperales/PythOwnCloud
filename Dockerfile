@@ -12,14 +12,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app code
-COPY main.py config.py auth.py ./
+COPY pythowncloud/ ./pythowncloud/
+COPY main.py .
 
 # Create default data dir
 RUN mkdir -p /data
 
 # Run as non-root
-RUN useradd -r -s /bin/false ocm && chown -R ocm:ocm /app
-USER ocm
+RUN useradd -r -s /bin/false poc && chown -R poc:poc /app /data
+USER poc
 
 EXPOSE 8000
 
