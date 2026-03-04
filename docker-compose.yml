@@ -1,0 +1,17 @@
+services:
+  poc:
+    build: .
+    container_name: pythowncloud-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Your external 5TB drive — adjust the host path to match your mount
+      - /home/carlos/pruebas/pythowncloud/data:/data
+    environment:
+      # Override these in .env or here
+      - POC_API_KEY=a1b2c3d4
+      - POC_STORAGE_PATH=/data
+    # Memory guard — prevent OOM on the Pi 3
+    mem_limit: 128m
+    memswap_limit: 192m
