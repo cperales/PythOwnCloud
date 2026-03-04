@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     # Max upload size in bytes (default 2 GB)
     max_upload_bytes: int = 2 * 1024 * 1024 * 1024
 
+    # Phase 2: PostgreSQL connection string — None disables DB features
+    db_url: str | None = None
+
+    # Phase 2: bcrypt hash of the web UI login password
+    # Generate: python3 -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"
+    login_password_hash: str = ""
+
+    # Phase 2: session TTL in days
+    session_ttl_days: int = 7
+
     model_config = {"env_prefix": "POC_", "env_file": ".env"}
 
 

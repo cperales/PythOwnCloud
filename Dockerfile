@@ -2,7 +2,7 @@ FROM python:3.14-trixie
 
 # Minimal system deps
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tini && \
+    apt-get install -y --no-install-recommends tini curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -23,6 +23,9 @@ RUN useradd -r -s /bin/false poc && chown -R poc:poc /app /data
 USER poc
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
 
 # tini handles PID 1 + signal forwarding properly
 ENTRYPOINT ["tini", "--"]

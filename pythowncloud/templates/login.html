@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Login — PythOwnCloud{% endblock %}
+
+{% block content %}
+<div class="login-card">
+  <h1>PythOwnCloud</h1>
+  {% if error %}
+  <p class="error">{{ error }}</p>
+  {% endif %}
+  <form method="POST" action="/login">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autofocus required>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+{% endblock %}
