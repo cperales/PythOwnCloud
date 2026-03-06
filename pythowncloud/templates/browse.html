@@ -504,22 +504,21 @@
     rootItem.innerHTML = '<span class="move-tree-label" onclick="selectMoveDestination(\"\")">📁 / (root)</span>';
     treeDiv.appendChild(rootItem);
 
-    // Build subdirectories from the file table
-    const tbody = document.querySelector('.file-table tbody');
-    const dirs = [];
-    tbody.querySelectorAll('tr:not(.parent-row)').forEach((row) => {
-      const nameLink = row.querySelector('.name-cell a');
-      if (nameLink && row.querySelector('.name-cell .icon:contains("📁")')) {
-        const dirLink = nameLink.getAttribute('href');
-        if (dirLink.startsWith('/browse/')) {
-          const dirPath = dirLink.replace('/browse/', '').replace(/\/$/, '');
-          dirs.push(dirPath);
-        }
-      }
-    });
+    // Build full directory tree: parent dirs + subdirs
+    const dirItems = new Set();
 
-    // Better way: get directories from table using the folder emoji
-    const dirItems = [];
+    // Add all parent directories from current path to root
+    if (basePath) {
+      const parts = basePath.split('/').filter(p => p);
+      let path = '';
+      for (const part of parts) {
+        path = path ? path + '/' + part : part;
+        dirItems.add(path);
+      }
+    }
+
+    // Add all subdirectories from current directory listing
+    const tbody = document.querySelector('.file-table tbody');
     tbody.querySelectorAll('tr').forEach((row) => {
       const icon = row.querySelector('.icon');
       const link = row.querySelector('.name-cell a');
@@ -527,21 +526,23 @@
         const href = link.getAttribute('href');
         if (href && href.startsWith('/browse/')) {
           const dirPath = href.replace('/browse/', '').replace(/\/$/, '');
-          dirItems.push(dirPath);
+          dirItems.add(dirPath);
         }
       }
     });
 
-    // Add subdirectories
-    dirItems.forEach((dirPath) => {
-      const item = document.createElement('div');
-      item.className = 'move-tree-item';
-      const level = (dirPath.match(/\//g) || []).length;
-      item.style.paddingLeft = (level + 1) * 1.5 + 'rem';
-      const label = dirPath.split('/').pop();
-      item.innerHTML = `<span class="move-tree-label" onclick="selectMoveDestination('${dirPath}')">📁 ${label}</span>`;
-      treeDiv.appendChild(item);
-    });
+    // Add all directories to tree, sorted by depth
+    Array.from(dirItems)
+      .sort((a, b) => (a.match(/\//g) || []).length - (b.match(/\//g) || []).length)
+      .forEach((dirPath) => {
+        const item = document.createElement('div');
+        item.className = 'move-tree-item';
+        const level = (dirPath.match(/\//g) || []).length;
+        item.style.paddingLeft = (level + 1) * 1.5 + 'rem';
+        const label = dirPath.split('/').pop();
+        item.innerHTML = `<span class="move-tree-label" onclick="selectMoveDestination('${dirPath}')">📁 ${label}</span>`;
+        treeDiv.appendChild(item);
+      });
 
     selectedMoveDestination = null;
     document.getElementById('move-dialog').classList.remove('hidden');
