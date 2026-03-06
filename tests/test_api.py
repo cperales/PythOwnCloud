@@ -24,9 +24,6 @@ def override_settings(tmp_path_factory):
     storage = tmp_path_factory.mktemp("data")
     config.settings.storage_path = str(storage)
     config.settings.api_key = API_KEY
-
-    import pythowncloud.main as main
-    main.STORAGE = Path(storage)
     return storage
 
 

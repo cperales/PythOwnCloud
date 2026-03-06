@@ -17,7 +17,6 @@ API_KEY = "test-secret-key-phase2"
 def client_no_db(tmp_path):
     """Fixture that provides a test client with fresh temp storage, no DB."""
     import pythowncloud.main as main
-    original_storage = main.STORAGE
     original_path = config.settings.storage_path
     original_key = config.settings.api_key
     original_hash = config.settings.login_password_hash
@@ -27,14 +26,12 @@ def client_no_db(tmp_path):
         config.settings.api_key = API_KEY
         import bcrypt
         config.settings.login_password_hash = bcrypt.hashpw(b"hunter2", bcrypt.gensalt()).decode()
-        main.STORAGE = Path(tmp_path)
 
         yield TestClient(main.app, raise_server_exceptions=True)
     finally:
         config.settings.storage_path = original_path
         config.settings.api_key = original_key
         config.settings.login_password_hash = original_hash
-        main.STORAGE = original_storage
 
 
 @pytest.fixture
