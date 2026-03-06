@@ -3,6 +3,7 @@ env/
 data/
 .claude/
 __pycache__/
+.pytest_cache/
 
 # Files
 .env

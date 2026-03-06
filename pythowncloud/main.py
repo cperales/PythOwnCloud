@@ -290,7 +290,7 @@ async def get_file(file_path: str, _key: str = Depends(verify_api_key)):
                     path=r["path"],
                     size=r["size"],
                     is_dir=r["is_dir"],
-                    modified=r["modified_at"].isoformat(),
+                    modified=r["modified_at"],  # Already an ISO 8601 string from DB
                     checksum=r["checksum"] or None,
                 )
                 for r in db_rows

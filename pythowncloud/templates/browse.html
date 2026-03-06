@@ -68,7 +68,7 @@
         {% else %}{{ "%.1f"|format(item.size / 1073741824) }} GB
         {% endif %}
       </td>
-      <td class="date-cell">{{ item.modified_at.strftime('%Y-%m-%d') }}</td>
+      <td class="date-cell">{{ item.modified_at[:10] }}</td>
       <td class="action-cell">
         {% if not item.is_dir %}
         <button type="button"

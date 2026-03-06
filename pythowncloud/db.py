@@ -1,81 +1,88 @@
 """
-Database — asyncpg connection pool and all SQL query functions.
-The pool is only created when POC_DB_URL is set; all functions
-are no-ops (return empty results) when the pool is None.
+Database — aiosqlite connection and all SQL query functions.
+The connection is opened on startup and lives in the Python process.
 """
 
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-import asyncpg
+import aiosqlite
 
 from pythowncloud.config import settings
 
 logger = logging.getLogger(__name__)
 
-_pool: asyncpg.Pool | None = None
+_conn: aiosqlite.Connection | None = None
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
-    id          SERIAL PRIMARY KEY,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
     path        TEXT NOT NULL UNIQUE,
     filename    TEXT NOT NULL,
     extension   TEXT,
-    size        BIGINT NOT NULL,
+    size        INTEGER NOT NULL,
     checksum    TEXT NOT NULL,
-    is_dir      BOOLEAN NOT NULL DEFAULT FALSE,
+    is_dir      INTEGER NOT NULL DEFAULT 0,
     author      TEXT NOT NULL DEFAULT 'admin',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    modified_at TIMESTAMPTZ NOT NULL,
-    scanned_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    modified_at TEXT NOT NULL,
+    scanned_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_files_path_parent ON files (path text_pattern_ops);
-CREATE INDEX IF NOT EXISTS idx_files_filename    ON files (filename);
-CREATE INDEX IF NOT EXISTS idx_files_extension   ON files (extension);
-CREATE INDEX IF NOT EXISTS idx_files_modified    ON files (modified_at);
+CREATE INDEX IF NOT EXISTS idx_files_filename  ON files (filename);
+CREATE INDEX IF NOT EXISTS idx_files_extension ON files (extension);
+CREATE INDEX IF NOT EXISTS idx_files_modified  ON files (modified_at);
 
 CREATE TABLE IF NOT EXISTS sessions (
     token       TEXT PRIMARY KEY,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at  TIMESTAMPTZ NOT NULL
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    expires_at  TEXT NOT NULL
 );
 """
 
 
-# ─── Pool lifecycle ─────────────────────────────────────────────────────────────
+# ─── Connection lifecycle ────────────────────────────────────────────────────
 
 async def create_pool() -> None:
-    global _pool
-    if settings.db_url is None:
-        return
-    _pool = await asyncpg.create_pool(settings.db_url, min_size=1, max_size=5)
-    logger.info("DB pool created")
+    """Open the SQLite connection and enable WAL mode."""
+    global _conn
+    db_path = settings.db_path
+    _conn = await aiosqlite.connect(str(db_path))
+    # Enable WAL mode for better concurrency
+    await _conn.execute("PRAGMA journal_mode=WAL")
+    # Set row_factory so rows can be accessed by column name
+    _conn.row_factory = aiosqlite.Row
+    logger.info(f"DB connection opened at {db_path}")
 
 
 async def close_pool() -> None:
-    global _pool
-    if _pool:
-        await _pool.close()
-        _pool = None
-        logger.info("DB pool closed")
+    """Close the SQLite connection."""
+    global _conn
+    if _conn:
+        await _conn.close()
+        _conn = None
+        logger.info("DB connection closed")
 
 
-def get_pool() -> asyncpg.Pool | None:
-    return _pool
+def get_pool() -> aiosqlite.Connection | None:
+    """Return the SQLite connection (or None if not initialized)."""
+    return _conn
 
 
 async def init_schema() -> None:
-    if _pool is None:
+    """Create tables and indexes."""
+    if _conn is None:
         return
-    async with _pool.acquire() as conn:
-        await conn.execute(SCHEMA_SQL)
+    await _conn.executescript(SCHEMA_SQL)
+    await _conn.commit()
     logger.info("DB schema initialised")
 
 
-# ─── File queries ───────────────────────────────────────────────────────────────
+# ─── File queries ────────────────────────────────────────────────────────────
 
 async def upsert_file(
     *,
@@ -87,45 +94,51 @@ async def upsert_file(
     is_dir: bool,
     modified_at: datetime,
 ) -> None:
-    if _pool is None:
+    """Upsert a file record. INSERT ... ON CONFLICT DO UPDATE."""
+    if _conn is None:
         return
-    async with _pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO files (path, filename, extension, size, checksum, is_dir, modified_at, scanned_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-            ON CONFLICT (path) DO UPDATE
-                SET filename    = EXCLUDED.filename,
-                    extension   = EXCLUDED.extension,
-                    size        = EXCLUDED.size,
-                    checksum    = EXCLUDED.checksum,
-                    is_dir      = EXCLUDED.is_dir,
-                    modified_at = EXCLUDED.modified_at,
-                    scanned_at  = now()
-            """,
-            path, filename, extension, size, checksum, is_dir, modified_at,
-        )
+    # Convert datetime to ISO 8601 string
+    modified_str = modified_at.isoformat()
+    await _conn.execute(
+        """
+        INSERT INTO files (path, filename, extension, size, checksum, is_dir, modified_at, scanned_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        ON CONFLICT (path) DO UPDATE
+            SET filename    = excluded.filename,
+                extension   = excluded.extension,
+                size        = excluded.size,
+                checksum    = excluded.checksum,
+                is_dir      = excluded.is_dir,
+                modified_at = excluded.modified_at,
+                scanned_at  = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        """,
+        (path, filename, extension, size, checksum, int(is_dir), modified_str),
+    )
+    await _conn.commit()
 
 
 async def delete_file_row(path: str) -> None:
-    if _pool is None:
+    """Delete a file record by path."""
+    if _conn is None:
         return
-    async with _pool.acquire() as conn:
-        await conn.execute("DELETE FROM files WHERE path = $1", path)
+    await _conn.execute("DELETE FROM files WHERE path = ?", (path,))
+    await _conn.commit()
 
 
 async def get_file_row(path: str) -> dict[str, Any] | None:
-    if _pool is None:
+    """Get a single file record by path."""
+    if _conn is None:
         return None
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM files WHERE path = $1", path)
+    cursor = await _conn.execute("SELECT * FROM files WHERE path = ?", (path,))
+    row = await cursor.fetchone()
     return dict(row) if row else None
 
 
 async def list_directory(parent_path: str) -> list[dict[str, Any]]:
     """Return direct children of parent_path, dirs first then files."""
-    if _pool is None:
+    if _conn is None:
         return []
+
     # Root is stored with empty string; sub-paths with no leading slash
     if parent_path in ("", "/"):
         # Top-level: path has no slash
@@ -135,18 +148,18 @@ async def list_directory(parent_path: str) -> list[dict[str, Any]]:
               AND path != ''
             ORDER BY is_dir DESC, filename ASC
         """
-        args: tuple = ()
+        cursor = await _conn.execute(query)
     else:
         p = parent_path.strip("/")
         query = """
             SELECT * FROM files
-            WHERE path LIKE $1 || '/%'
-              AND path NOT LIKE $1 || '/%/%'
+            WHERE path LIKE ? || '/%'
+              AND path NOT LIKE ? || '/%/%'
             ORDER BY is_dir DESC, filename ASC
         """
-        args = (p,)
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch(query, *args)
+        cursor = await _conn.execute(query, (p, p))
+
+    rows = await cursor.fetchall()
     return [dict(r) for r in rows]
 
 
@@ -157,85 +170,96 @@ async def search_files(
     modified_before: datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    if _pool is None:
+    """Search files by name, extension, and date range."""
+    if _conn is None:
         return []
+
     conditions: list[str] = []
     params: list[Any] = []
-    idx = 1
 
     if q:
-        conditions.append(f"filename ILIKE ${idx}")
+        conditions.append("filename LIKE ?")
         params.append(f"%{q}%")
-        idx += 1
     if extension:
-        conditions.append(f"extension = ${idx}")
+        conditions.append("extension = ?")
         params.append(extension.lstrip(".").lower())
-        idx += 1
     if modified_after:
-        conditions.append(f"modified_at >= ${idx}")
-        params.append(modified_after)
-        idx += 1
+        conditions.append("modified_at >= ?")
+        params.append(modified_after.isoformat())
     if modified_before:
-        conditions.append(f"modified_at <= ${idx}")
-        params.append(modified_before)
-        idx += 1
+        conditions.append("modified_at <= ?")
+        params.append(modified_before.isoformat())
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.append(limit)
-    query = f"SELECT * FROM files {where} ORDER BY modified_at DESC LIMIT ${idx}"
+    query = f"SELECT * FROM files {where} ORDER BY modified_at DESC LIMIT ?"
 
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch(query, *params)
+    cursor = await _conn.execute(query, params)
+    rows = await cursor.fetchall()
     return [dict(r) for r in rows]
 
 
 async def delete_files_not_in(existing_paths: list[str]) -> int:
     """Delete DB rows whose paths are not in the given list. Returns count deleted."""
-    if _pool is None:
+    if _conn is None:
         return 0
-    async with _pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM files WHERE NOT (path = ANY($1::text[]))",
+
+    if not existing_paths:
+        # Delete all rows if list is empty (rare, but safe)
+        cursor = await _conn.execute("DELETE FROM files")
+    else:
+        # Build WHERE clause with ? placeholders
+        placeholders = ",".join(["?" for _ in existing_paths])
+        cursor = await _conn.execute(
+            f"DELETE FROM files WHERE path NOT IN ({placeholders})",
             existing_paths,
         )
-    # result is like "DELETE 3"
-    return int(result.split()[-1])
+
+    await _conn.commit()
+    # SQLite cursor.rowcount gives the number of rows affected
+    return cursor.rowcount
 
 
-# ─── Session queries ─────────────────────────────────────────────────────────────
+# ─── Session queries ────────────────────────────────────────────────────────
 
 async def create_session(token: str, expires_at: datetime) -> None:
-    if _pool is None:
+    """Create a new session."""
+    if _conn is None:
         return
-    async with _pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO sessions (token, expires_at) VALUES ($1, $2)",
-            token, expires_at,
-        )
+    expires_str = expires_at.isoformat()
+    await _conn.execute(
+        "INSERT INTO sessions (token, expires_at) VALUES (?, ?)",
+        (token, expires_str),
+    )
+    await _conn.commit()
 
 
 async def get_session(token: str) -> dict[str, Any] | None:
     """Return session row only if it exists and has not expired."""
-    if _pool is None:
+    if _conn is None:
         return None
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM sessions WHERE token = $1 AND expires_at > now()",
-            token,
-        )
+    cursor = await _conn.execute(
+        "SELECT * FROM sessions WHERE token = ? AND expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+        (token,),
+    )
+    row = await cursor.fetchone()
     return dict(row) if row else None
 
 
 async def delete_session(token: str) -> None:
-    if _pool is None:
+    """Delete a session."""
+    if _conn is None:
         return
-    async with _pool.acquire() as conn:
-        await conn.execute("DELETE FROM sessions WHERE token = $1", token)
+    await _conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    await _conn.commit()
 
 
 async def purge_expired_sessions() -> int:
-    if _pool is None:
+    """Delete all expired sessions. Returns count deleted."""
+    if _conn is None:
         return 0
-    async with _pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM sessions WHERE expires_at <= now()")
-    return int(result.split()[-1])
+    cursor = await _conn.execute(
+        "DELETE FROM sessions WHERE expires_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+    )
+    await _conn.commit()
+    return cursor.rowcount

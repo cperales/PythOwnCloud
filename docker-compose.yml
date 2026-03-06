@@ -10,31 +10,7 @@ services:
     environment:
       - POC_API_KEY=${POC_API_KEY}
       - POC_STORAGE_PATH=/data
-      - POC_DB_URL=postgresql://poc:${DB_PASSWORD}@db:5432/pythowncloud
       - POC_LOGIN_PASSWORD_HASH=${POC_LOGIN_PASSWORD_HASH}
       - POC_SESSION_TTL_DAYS=7
-    depends_on:
-      db:
-        condition: service_healthy
     mem_limit: 128m
     memswap_limit: 192m
-
-  db:
-    image: postgres:16
-    container_name: pythowncloud-db
-    restart: unless-stopped
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=poc
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=pythowncloud
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U poc -d pythowncloud"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    mem_limit: 96m
-
-volumes:
-  pgdata:

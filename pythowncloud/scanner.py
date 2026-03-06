@@ -63,7 +63,7 @@ async def run_scan() -> dict:
             needs_update = (
                 existing is None
                 or existing["size"] != stat.st_size
-                or existing["modified_at"].replace(tzinfo=timezone.utc) != mtime
+                or datetime.fromisoformat(existing["modified_at"]) != mtime
             )
 
             if needs_update:
