@@ -19,6 +19,7 @@
 
 <div class="upload-bar">
   <button type="button" id="upload-toggle" class="btn-upload">Upload files</button>
+  <button type="button" id="mkdir-btn" class="btn-upload" onclick="openMkdirDialog()">New folder</button>
   <div id="upload-area" class="upload-area hidden">
     <input type="file" id="file-input" multiple>
     <span id="upload-status"></span>
@@ -97,6 +98,12 @@
                 data-path="{{ item.path }}"
                 data-name="{{ item.filename }}"
                 onclick="confirmDelete(this)">&#x1F5D1;</button>
+        {% else %}
+        <button type="button"
+                class="btn-delete"
+                data-path="{{ item.path }}"
+                data-name="{{ item.filename }}"
+                onclick="confirmDeleteDir(this)">&#x1F5D1;</button>
         {% endif %}
       </td>
     </tr>
@@ -155,6 +162,19 @@
     <div class="media-info" style="margin-top: 0.75rem;">
       <span id="video-name"></span>
       <a id="video-download" href="#" download class="media-download-btn">Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- Create folder dialog -->
+<div id="mkdir-dialog" class="move-dialog hidden">
+  <div class="move-dialog-content">
+    <h2>New folder</h2>
+    <input type="text" id="mkdir-name" class="mkdir-input" placeholder="Folder name" maxlength="255"
+           onkeydown="if(event.key==='Enter')confirmMkdir(); if(event.key==='Escape')closeMkdirDialog()">
+    <div class="move-dialog-actions">
+      <button type="button" class="btn-cancel" onclick="closeMkdirDialog()">Cancel</button>
+      <button type="button" class="btn-move-here" onclick="confirmMkdir()">Create</button>
     </div>
   </div>
 </div>
@@ -302,6 +322,19 @@
       setTimeout(() => location.reload(), 1000);
     }
   });
+
+  // Delete directory via fetch → DELETE /dirs/{path}
+  function confirmDeleteDir(btn) {
+    const name = btn.dataset.name;
+    const path = btn.dataset.path;
+    if (!confirm('Delete folder "' + name + '" and all its contents?')) return;
+    fetch('/dirs/' + path, { method: 'DELETE' })
+      .then(r => {
+        if (r.ok) location.reload();
+        else r.json().then(e => alert('Error: ' + (e.detail || r.statusText)));
+      })
+      .catch(e => alert('Error: ' + e.message));
+  }
 
   // Delete via fetch → DELETE /files/{path}
   function confirmDelete(btn) {
@@ -564,6 +597,43 @@
 
   document.getElementById('move-dialog').addEventListener('click', (e) => {
     if (e.target.id === 'move-dialog') closeMoveDialog();
+  });
+
+  // ──── Create Folder ────
+
+  function openMkdirDialog() {
+    document.getElementById('mkdir-name').value = '';
+    document.getElementById('mkdir-dialog').classList.remove('hidden');
+    setTimeout(() => document.getElementById('mkdir-name').focus(), 50);
+  }
+
+  function closeMkdirDialog() {
+    document.getElementById('mkdir-dialog').classList.add('hidden');
+  }
+
+  async function confirmMkdir() {
+    const name = document.getElementById('mkdir-name').value.trim();
+    if (!name) { alert('Please enter a folder name'); return; }
+    if (name.includes('/') || name === '.' || name === '..') {
+      alert('Invalid folder name'); return;
+    }
+    const dirPath = basePath ? basePath + '/' + name : name;
+    try {
+      const resp = await fetch('/mkdir/' + dirPath, { method: 'POST' });
+      if (resp.ok) {
+        closeMkdirDialog();
+        location.reload();
+      } else {
+        const err = await resp.json();
+        alert('Error: ' + (err.detail || resp.statusText));
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  document.getElementById('mkdir-dialog').addEventListener('click', (e) => {
+    if (e.target.id === 'mkdir-dialog') closeMkdirDialog();
   });
 </script>
 {% endblock %}

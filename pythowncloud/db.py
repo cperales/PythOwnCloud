@@ -125,6 +125,17 @@ async def delete_file_row(path: str) -> None:
     await _conn.commit()
 
 
+async def delete_directory_rows(path: str) -> None:
+    """Delete a directory record and all descendants."""
+    if _conn is None:
+        return
+    await _conn.execute(
+        "DELETE FROM files WHERE path = ? OR path LIKE ?",
+        (path, path + "/%"),
+    )
+    await _conn.commit()
+
+
 async def get_file_row(path: str) -> dict[str, Any] | None:
     """Get a single file record by path."""
     if _conn is None:

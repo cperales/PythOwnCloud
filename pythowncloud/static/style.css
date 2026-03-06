@@ -503,6 +503,20 @@ main {
   color: #333;
 }
 
+.mkdir-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: .5rem .75rem;
+  font-size: .95rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+.mkdir-input:focus {
+  outline: none;
+  border-color: #1a1a2e;
+}
+
 .move-tree {
   border: 1px solid #ddd;
   border-radius: 4px;
