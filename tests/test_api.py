@@ -218,3 +218,76 @@ class TestSecurity:
             files={"file": ("evil.txt", b"bad", "text/plain")},
         )
         assert r.status_code in (403, 404)
+
+
+# ─── Move File ────────────────────────────────────────────────────────────────
+
+class TestMoveFile:
+    def test_move_file(self, client, auth):
+        # Create files and directory
+        client.put(
+            "/files/source.txt",
+            headers=auth,
+            files={"file": ("source.txt", b"hello", "text/plain")},
+        )
+        client.post("/mkdir/dest_dir", headers=auth)
+
+        # Move file to directory
+        r = client.post(
+            "/files/move",
+            headers=auth,
+            json={"source": "source.txt", "destination": "dest_dir/source.txt"},
+        )
+        assert r.status_code == 200
+        assert r.json()["message"] == "moved"
+
+        # Original file should not exist
+        r = client.get("/files/source.txt", headers=auth)
+        assert r.status_code == 404
+
+        # New location should exist
+        r = client.get("/files/dest_dir/source.txt", headers=auth)
+        assert r.status_code == 200
+        assert r.content == b"hello"
+
+    def test_move_nonexistent_returns_404(self, client, auth):
+        r = client.post(
+            "/files/move",
+            headers=auth,
+            json={"source": "nonexistent.txt", "destination": "new.txt"},
+        )
+        assert r.status_code == 404
+
+    def test_move_to_existing_returns_409(self, client, auth):
+        client.put(
+            "/files/a.txt",
+            headers=auth,
+            files={"file": ("a.txt", b"a", "text/plain")},
+        )
+        client.put(
+            "/files/b.txt",
+            headers=auth,
+            files={"file": ("b.txt", b"b", "text/plain")},
+        )
+
+        r = client.post(
+            "/files/move",
+            headers=auth,
+            json={"source": "a.txt", "destination": "b.txt"},
+        )
+        assert r.status_code == 409
+
+    def test_move_to_same_path_is_noop(self, client, auth):
+        client.put(
+            "/files/same.txt",
+            headers=auth,
+            files={"file": ("same.txt", b"same", "text/plain")},
+        )
+
+        r = client.post(
+            "/files/move",
+            headers=auth,
+            json={"source": "same.txt", "destination": "same.txt"},
+        )
+        assert r.status_code == 200
+        assert r.json()["message"] == "same path"

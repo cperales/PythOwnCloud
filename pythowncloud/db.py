@@ -220,6 +220,67 @@ async def delete_files_not_in(existing_paths: list[str]) -> int:
     return cursor.rowcount
 
 
+async def move_file_row(source_path: str, dest_path: str) -> None:
+    """Move a single file record: update path, filename, and extension."""
+    if _conn is None:
+        return
+
+    dest_filename = Path(dest_path).name
+    dest_ext = Path(dest_path).suffix.lstrip(".").lower() if "." in dest_path else ""
+
+    await _conn.execute(
+        "UPDATE files SET path = ?, filename = ?, extension = ? WHERE path = ?",
+        (dest_path, dest_filename, dest_ext, source_path),
+    )
+    await _conn.commit()
+
+
+async def move_directory_rows(source_prefix: str, dest_prefix: str) -> int:
+    """Move all rows with source_prefix path to use dest_prefix. Returns count updated."""
+    if _conn is None:
+        return 0
+
+    # Find all rows that start with source_prefix
+    cursor = await _conn.execute(
+        "SELECT path FROM files WHERE path LIKE ? || '/%' OR path = ?",
+        (source_prefix, source_prefix),
+    )
+    rows = await cursor.fetchall()
+
+    count = 0
+    for (old_path,) in rows:
+        # Replace the source prefix with the destination prefix
+        if old_path == source_prefix:
+            new_path = dest_prefix
+        else:
+            # old_path is like "source/subdir/file.txt"
+            # Replace "source" with "dest"
+            suffix = old_path[len(source_prefix) + 1:]  # Skip the slash
+            new_path = f"{dest_prefix}/{suffix}"
+
+        new_filename = Path(new_path).name
+        new_ext = Path(new_path).suffix.lstrip(".").lower() if "." in new_path else ""
+
+        await _conn.execute(
+            "UPDATE files SET path = ?, filename = ?, extension = ? WHERE path = ?",
+            (new_path, new_filename, new_ext, old_path),
+        )
+        count += 1
+
+    await _conn.commit()
+    return count
+
+
+async def list_all_directories() -> list[str]:
+    """Return all directory paths in the database, sorted."""
+    if _conn is None:
+        return []
+
+    cursor = await _conn.execute("SELECT path FROM files WHERE is_dir = 1 ORDER BY path")
+    rows = await cursor.fetchall()
+    return [row[0] for row in rows]
+
+
 # ─── Session queries ────────────────────────────────────────────────────────
 
 async def create_session(token: str, expires_at: datetime) -> None:

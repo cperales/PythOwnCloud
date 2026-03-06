@@ -88,6 +88,11 @@ class UploadResponse(BaseModel):
     message: str
 
 
+class MoveRequest(BaseModel):
+    source: str
+    destination: str
+
+
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
 def safe_path(user_path: str) -> Path:
@@ -475,3 +480,63 @@ async def make_directory(dir_path: str, _key: str = Depends(verify_api_key)):
     target = safe_path(dir_path)
     target.mkdir(parents=True, exist_ok=True)
     return {"path": dir_path, "message": "created"}
+
+
+@app.post("/files/move")
+async def move_file(req: MoveRequest, _auth: str = Depends(verify_api_key_or_session)):
+    """Move a file or directory from source to destination path."""
+    source_path = req.source.strip("/")
+    dest_path = req.destination.strip("/")
+
+    # Validate both paths
+    source = safe_path(source_path)
+    dest = safe_path(dest_path)
+
+    # Check source exists
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # Prevent moving to same path
+    if source.resolve() == dest.resolve():
+        return {"source": source_path, "destination": dest_path, "message": "same path"}
+
+    # Check destination doesn't already exist
+    if dest.exists():
+        raise HTTPException(status_code=409, detail="Destination already exists")
+
+    # Create destination parent directories if needed
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Move on filesystem using shutil.move for both files and directories
+    import shutil
+    shutil.move(str(source), str(dest))
+
+    # Get relative path from source and destination for DB updates
+    rel_source = str(source.relative_to(STORAGE))
+    rel_dest = str(dest.relative_to(STORAGE))
+
+    # Invalidate listing cache for both old and new parent directories
+    _invalidate_listing_cache(rel_source)
+    _invalidate_listing_cache(rel_dest)
+
+    # Update database (best-effort)
+    if db.get_pool() is not None:
+        try:
+            if source.is_dir():
+                # Move directory and all children
+                await db.move_directory_rows(rel_source, rel_dest)
+            else:
+                # Move single file
+                await db.move_file_row(rel_source, rel_dest)
+        except Exception:
+            logger.warning("DB move failed for %s -> %s", rel_source, rel_dest, exc_info=True)
+
+    # Move thumbnail (best-effort)
+    try:
+        ext = Path(rel_dest).suffix.lstrip(".").lower()
+        if thumbnails.is_thumbable(ext):
+            thumbnails.move_thumbnail(rel_source, rel_dest)
+    except Exception:
+        logger.warning("Thumbnail move failed for %s -> %s", rel_source, rel_dest, exc_info=True)
+
+    return {"source": source_path, "destination": dest_path, "message": "moved"}

@@ -179,6 +179,17 @@ main {
 
 .empty { color: #999; padding: 1.5rem; text-align: center; }
 
+.btn-move {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: .5;
+  padding: .2rem;
+  margin-right: 0.3rem;
+}
+.btn-move:hover { opacity: 1; }
+
 .btn-delete {
   background: transparent;
   border: none;
@@ -194,4 +205,373 @@ main {
   margin-top: .75rem;
   font-size: .8rem;
   color: #888;
+}
+
+/* ── File browser drag zone ── */
+.file-browser {
+  position: relative;
+  transition: outline 150ms ease;
+}
+
+.file-browser.drag-active {
+  outline: 3px dashed #1a1a2e;
+  outline-offset: -8px;
+  background: rgba(26, 26, 46, 0.03);
+}
+
+/* ── Upload progress panel ── */
+.upload-progress {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  background: #fff;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 300px;
+  max-width: 400px;
+  z-index: 1000;
+}
+
+.upload-progress.hidden {
+  display: none;
+}
+
+.progress-item {
+  margin-bottom: 0.75rem;
+}
+
+.progress-item:last-child {
+  margin-bottom: 0;
+}
+
+.progress-name {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 0.35rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-bar {
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1a1a2e, #2a2a4e);
+  width: 0%;
+  transition: width 150ms ease;
+}
+
+.progress-percent {
+  display: block;
+  font-size: 0.75rem;
+  color: #666;
+  text-align: right;
+}
+
+.progress-item.progress-error .progress-fill {
+  background: #c0392b;
+}
+
+.progress-item.progress-error .progress-percent {
+  color: #c0392b;
+}
+
+.progress-complete {
+  padding: 0.5rem 0;
+  color: #27ae60;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* ── Lightbox overlay ── */
+.lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.lightbox.hidden {
+  display: none;
+}
+
+.lightbox-content {
+  position: relative;
+  max-width: 85vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#lightbox-image {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox-close:hover {
+  color: #ddd;
+}
+
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  font-size: 2.5rem;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.lightbox-nav:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.lightbox-prev {
+  left: -60px;
+}
+
+.lightbox-next {
+  right: -60px;
+}
+
+.lightbox-info {
+  margin-top: 1rem;
+  color: #fff;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.lightbox-download-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.lightbox-download-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Media player overlays ── */
+.media-player {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 600px;
+  z-index: 2000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.media-player.hidden {
+  display: none;
+}
+
+.media-player-content {
+  position: relative;
+}
+
+.media-close {
+  position: absolute;
+  top: -10px;
+  right: 0;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 1.8rem;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+}
+
+.media-close:hover {
+  color: #333;
+}
+
+.media-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.media-icon {
+  font-size: 1.25rem;
+}
+
+.media-download-btn {
+  background: #f0f0f5;
+  color: #1a1a2e;
+  border: 1px solid #ddd;
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 150ms;
+  display: inline-block;
+}
+
+.media-download-btn:hover {
+  background: #e8e8f0;
+}
+
+/* ── Move dialog ── */
+.move-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.move-dialog.hidden {
+  display: none;
+}
+
+.move-dialog-content {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 500px;
+  max-height: 70vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.move-dialog-content h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.move-tree {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  background: #fafafa;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.move-tree-item {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #eee;
+  user-select: none;
+}
+
+.move-tree-item:last-child {
+  border-bottom: none;
+}
+
+.move-tree-item-root {
+  padding-left: 1rem;
+}
+
+.move-tree-label {
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  display: inline-block;
+  transition: background 150ms;
+}
+
+.move-tree-label:hover {
+  background: rgba(26, 26, 46, 0.1);
+}
+
+.move-tree-label.selected {
+  background: #1a1a2e;
+  color: #fff;
+}
+
+.move-dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.btn-cancel {
+  padding: 0.5rem 1rem;
+  background: #f0f0f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.btn-cancel:hover {
+  background: #e8e8f0;
+}
+
+.btn-move-here {
+  padding: 0.5rem 1rem;
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.btn-move-here:hover {
+  background: #2a2a4e;
 }

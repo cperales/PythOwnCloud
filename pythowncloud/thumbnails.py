@@ -193,3 +193,24 @@ def invalidate_cache_for_directory(dir_path: str) -> None:
     keys_to_remove = [k for k in _thumb_exists_cache if k.startswith(prefix)]
     for k in keys_to_remove:
         _thumb_exists_cache.pop(k, None)
+
+
+def move_thumbnail(source_rel_path: str, dest_rel_path: str) -> None:
+    """Move a thumbnail file from source to destination and update cache."""
+    # Remove source from cache
+    _thumb_exists_cache.pop(source_rel_path, None)
+
+    source_thumb = thumb_path_for(source_rel_path)
+    dest_thumb = thumb_path_for(dest_rel_path)
+
+    # Create parent dirs for destination if needed
+    dest_thumb.parent.mkdir(parents=True, exist_ok=True)
+
+    # Move the file if it exists
+    if source_thumb.exists():
+        source_thumb.rename(dest_thumb)
+        logger.debug(f"Moved thumbnail from {source_thumb} to {dest_thumb}")
+
+    # Update cache: mark destination as existing (if source existed)
+    if source_thumb.exists() or dest_thumb.exists():
+        _thumb_exists_cache[dest_rel_path] = dest_thumb.exists()

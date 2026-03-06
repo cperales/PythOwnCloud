@@ -25,6 +25,7 @@
   </div>
 </div>
 
+<main class="file-browser">
 <table class="file-table">
   <thead>
     <tr>
@@ -61,7 +62,17 @@
               {% endif %}
             </span>
           {% endif %}
-          <a href="/files/{{ item.path }}" download>{{ item.filename }}</a>
+          {% if item.extension in ('jpg','jpeg','png','gif','webp','heic','bmp','tiff') %}
+            <a href="#" onclick="openLightbox('{{ item.path }}', '{{ item.filename }}', event)">{{ item.filename }}</a>
+          {% elif item.extension in ('mp3','flac','aac','ogg') %}
+            <a href="#" onclick="openAudioPlayer('{{ item.path }}', '{{ item.filename }}', event)">{{ item.filename }}</a>
+          {% elif item.extension in ('mp4','mov','webm') %}
+            <a href="#" onclick="openVideoPlayer('{{ item.path }}', '{{ item.filename }}', event)">{{ item.filename }}</a>
+          {% elif item.extension == 'mkv' %}
+            <a href="/files/{{ item.path }}" download>{{ item.filename }}</a>
+          {% else %}
+            <a href="/files/{{ item.path }}" download>{{ item.filename }}</a>
+          {% endif %}
         {% endif %}
       </td>
       <td class="size-cell">
@@ -75,6 +86,12 @@
       <td class="date-cell">{{ item.modified_at[:10] }}</td>
       <td class="action-cell">
         {% if not item.is_dir %}
+        <button type="button"
+                class="btn-move"
+                data-path="{{ item.path }}"
+                data-name="{{ item.filename }}"
+                title="Move file"
+                onclick="openMoveDialog(this)">⇄</button>
         <button type="button"
                 class="btn-delete"
                 data-path="{{ item.path }}"
@@ -99,41 +116,191 @@
     {% endif %}
   {% endif %}
 </p>
+</main>
+
+<div id="upload-progress" class="upload-progress hidden"></div>
+
+<!-- Lightbox overlay for images -->
+<div id="lightbox" class="lightbox hidden">
+  <div class="lightbox-content">
+    <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+    <button class="lightbox-nav lightbox-prev" onclick="prevImage()">&lsaquo;</button>
+    <img id="lightbox-image" src="" alt="">
+    <button class="lightbox-nav lightbox-next" onclick="nextImage()">&rsaquo;</button>
+    <div class="lightbox-info">
+      <span id="lightbox-name"></span> &middot; <span id="lightbox-size"></span>
+      <a id="lightbox-download" href="#" download class="lightbox-download-btn">Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- Audio player overlay -->
+<div id="audio-player" class="media-player hidden">
+  <div class="media-player-content">
+    <button class="media-close" onclick="closeAudioPlayer()">&times;</button>
+    <div class="media-info">
+      <span class="media-icon">🎵</span>
+      <span id="audio-name"></span>
+    </div>
+    <audio id="audio-element" controls style="width: 100%; margin: 0.5rem 0;"></audio>
+    <a id="audio-download" href="#" download class="media-download-btn">Download</a>
+  </div>
+</div>
+
+<!-- Video player overlay -->
+<div id="video-player" class="media-player hidden">
+  <div class="media-player-content">
+    <button class="media-close" onclick="closeVideoPlayer()">&times;</button>
+    <video id="video-element" controls style="width: 100%; max-height: 70vh; background: #000;"></video>
+    <div class="media-info" style="margin-top: 0.75rem;">
+      <span id="video-name"></span>
+      <a id="video-download" href="#" download class="media-download-btn">Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- Move dialog -->
+<div id="move-dialog" class="move-dialog hidden">
+  <div class="move-dialog-content">
+    <h2>Move "<span id="move-filename"></span>"</h2>
+    <div class="move-tree" id="move-tree"></div>
+    <div class="move-dialog-actions">
+      <button type="button" class="btn-cancel" onclick="closeMoveDialog()">Cancel</button>
+      <button type="button" class="btn-move-here" onclick="confirmMove()">Move here</button>
+    </div>
+  </div>
+</div>
 
 <script>
+  const basePath = {{ current_path|tojson }};
+  const uploadArea = document.getElementById('upload-area');
+  const fileBrowser = document.querySelector('.file-browser');
+  const uploadProgressDiv = document.getElementById('upload-progress');
+
   // Upload toggle
   document.getElementById('upload-toggle').addEventListener('click', function () {
-    document.getElementById('upload-area').classList.toggle('hidden');
+    uploadArea.classList.toggle('hidden');
   });
 
-  // Upload via fetch → PUT /files/{path}
+  // Upload progress tracking with XMLHttpRequest
+  function uploadFileWithProgress(file) {
+    return new Promise((resolve, reject) => {
+      const uploadPath = basePath ? basePath + '/' + file.name : file.name;
+      const xhr = new XMLHttpRequest();
+
+      // Progress event for tracking
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          updateProgressBar(file.name, pct);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.detail || xhr.statusText));
+          } catch {
+            reject(new Error(xhr.statusText));
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error'));
+      });
+
+      xhr.open('PUT', '/files/' + uploadPath);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.send(file);
+    });
+  }
+
+  function updateProgressBar(filename, percent) {
+    let fileRow = uploadProgressDiv.querySelector(`[data-filename="${filename}"]`);
+    if (!fileRow) {
+      fileRow = document.createElement('div');
+      fileRow.className = 'progress-item';
+      fileRow.dataset.filename = filename;
+      fileRow.innerHTML = `
+        <span class="progress-name">${filename}</span>
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+        <span class="progress-percent">0%</span>
+      `;
+      uploadProgressDiv.appendChild(fileRow);
+    }
+    fileRow.querySelector('.progress-fill').style.width = percent + '%';
+    fileRow.querySelector('.progress-percent').textContent = percent + '%';
+  }
+
+  // File input upload
   document.getElementById('file-input').addEventListener('change', async function () {
-    const status = document.getElementById('upload-status');
-    const basePath = {{ current_path|tojson }};
     const files = Array.from(this.files);
     if (!files.length) return;
 
+    uploadProgressDiv.classList.remove('hidden');
+    uploadProgressDiv.innerHTML = '';
+    let hasError = false;
+
     for (const file of files) {
-      const uploadPath = basePath ? basePath + '/' + file.name : file.name;
-      status.textContent = 'Uploading ' + file.name + '…';
       try {
-        const resp = await fetch('/files/' + uploadPath, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': 'application/octet-stream' },
-        });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-          status.textContent = 'Error: ' + (err.detail || resp.statusText);
-          return;
-        }
+        await uploadFileWithProgress(file);
       } catch (e) {
-        status.textContent = 'Upload failed: ' + e.message;
-        return;
+        const fileRow = uploadProgressDiv.querySelector(`[data-filename="${file.name}"]`);
+        if (fileRow) {
+          fileRow.classList.add('progress-error');
+          fileRow.querySelector('.progress-percent').textContent = 'Error: ' + e.message;
+        }
+        hasError = true;
       }
     }
-    status.textContent = files.length + ' file(s) uploaded. Reloading…';
-    setTimeout(() => location.reload(), 800);
+
+    if (!hasError) {
+      uploadProgressDiv.innerHTML = '<div class="progress-complete">Uploaded successfully. Reloading…</div>';
+      setTimeout(() => location.reload(), 1000);
+    }
+  });
+
+  // Drag and drop
+  fileBrowser.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileBrowser.classList.add('drag-active');
+  });
+
+  fileBrowser.addEventListener('dragleave', () => {
+    fileBrowser.classList.remove('drag-active');
+  });
+
+  fileBrowser.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    fileBrowser.classList.remove('drag-active');
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+
+    uploadProgressDiv.classList.remove('hidden');
+    uploadProgressDiv.innerHTML = '';
+    let hasError = false;
+
+    for (const file of files) {
+      try {
+        await uploadFileWithProgress(file);
+      } catch (err) {
+        const fileRow = uploadProgressDiv.querySelector(`[data-filename="${file.name}"]`);
+        if (fileRow) {
+          fileRow.classList.add('progress-error');
+          fileRow.querySelector('.progress-percent').textContent = 'Error: ' + err.message;
+        }
+        hasError = true;
+      }
+    }
+
+    if (!hasError) {
+      uploadProgressDiv.innerHTML = '<div class="progress-complete">Uploaded successfully. Reloading…</div>';
+      setTimeout(() => location.reload(), 1000);
+    }
   });
 
   // Delete via fetch → DELETE /files/{path}
@@ -148,5 +315,255 @@
       })
       .catch(e => alert('Error: ' + e.message));
   }
+
+  // ──── Image Lightbox ────
+
+  const imageExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'bmp', 'tiff']);
+  let currentImagePath = null;
+  let currentImageIndex = 0;
+  let imageFiles = [];
+
+  function getImageFilesInDirectory() {
+    // Collect all image files from the current directory's file table
+    imageFiles = [];
+    const tbody = document.querySelector('.file-table tbody');
+    const rows = tbody.querySelectorAll('tr:not(.parent-row)');
+    rows.forEach((row) => {
+      const link = row.querySelector('.name-cell a');
+      if (!link || link.onclick?.toString().includes('openLightbox')) {
+        const filename = row.querySelector('.name-cell a')?.textContent || '';
+        const ext = filename.split('.').pop().toLowerCase();
+        if (imageExtensions.has(ext)) {
+          const path = link.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+          if (path) imageFiles.push(path);
+        }
+      }
+    });
+  }
+
+  function openLightbox(path, filename, e) {
+    e.preventDefault();
+    currentImagePath = path;
+    getImageFilesInDirectory();
+    currentImageIndex = imageFiles.indexOf(path);
+    if (currentImageIndex === -1) {
+      currentImageIndex = 0;
+      imageFiles = [path];
+    }
+
+    const lightbox = document.getElementById('lightbox');
+    const img = document.getElementById('lightbox-image');
+    const nameEl = document.getElementById('lightbox-name');
+    const sizeEl = document.getElementById('lightbox-size');
+    const dlLink = document.getElementById('lightbox-download');
+
+    img.src = '/files/' + path;
+    nameEl.textContent = filename;
+    sizeEl.textContent = path.split('/').pop();
+    dlLink.href = '/files/' + path;
+    lightbox.classList.remove('hidden');
+
+    // Keyboard navigation
+    document.addEventListener('keydown', handleLightboxKeydown);
+  }
+
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.add('hidden');
+    document.removeEventListener('keydown', handleLightboxKeydown);
+  }
+
+  function nextImage() {
+    if (imageFiles.length === 0) return;
+    currentImageIndex = (currentImageIndex + 1) % imageFiles.length;
+    openLightbox(imageFiles[currentImageIndex], imageFiles[currentImageIndex].split('/').pop(), { preventDefault: () => {} });
+  }
+
+  function prevImage() {
+    if (imageFiles.length === 0) return;
+    currentImageIndex = (currentImageIndex - 1 + imageFiles.length) % imageFiles.length;
+    openLightbox(imageFiles[currentImageIndex], imageFiles[currentImageIndex].split('/').pop(), { preventDefault: () => {} });
+  }
+
+  function handleLightboxKeydown(e) {
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowRight') nextImage();
+    else if (e.key === 'ArrowLeft') prevImage();
+  }
+
+  // Click outside to close lightbox
+  document.getElementById('lightbox').addEventListener('click', (e) => {
+    if (e.target.id === 'lightbox') closeLightbox();
+  });
+
+  // ──── Audio Player ────
+
+  function openAudioPlayer(path, filename, e) {
+    e.preventDefault();
+    const player = document.getElementById('audio-player');
+    const audio = document.getElementById('audio-element');
+    const nameEl = document.getElementById('audio-name');
+    const dlLink = document.getElementById('audio-download');
+
+    audio.src = '/files/' + path;
+    nameEl.textContent = filename;
+    dlLink.href = '/files/' + path;
+    player.classList.remove('hidden');
+
+    audio.play().catch(() => {});
+  }
+
+  function closeAudioPlayer() {
+    const audio = document.getElementById('audio-element');
+    audio.pause();
+    document.getElementById('audio-player').classList.add('hidden');
+  }
+
+  document.getElementById('audio-player').addEventListener('click', (e) => {
+    if (e.target.id === 'audio-player') closeAudioPlayer();
+  });
+
+  // ──── Video Player ────
+
+  function openVideoPlayer(path, filename, e) {
+    e.preventDefault();
+    const player = document.getElementById('video-player');
+    const video = document.getElementById('video-element');
+    const nameEl = document.getElementById('video-name');
+    const dlLink = document.getElementById('video-download');
+
+    video.src = '/files/' + path;
+    nameEl.textContent = filename;
+    dlLink.href = '/files/' + path;
+    player.classList.remove('hidden');
+
+    video.play().catch(() => {});
+  }
+
+  function closeVideoPlayer() {
+    const video = document.getElementById('video-element');
+    video.pause();
+    document.getElementById('video-player').classList.add('hidden');
+  }
+
+  document.getElementById('video-player').addEventListener('click', (e) => {
+    if (e.target.id === 'video-player') closeVideoPlayer();
+  });
+
+  // ──── Move File Dialog ────
+
+  let currentMoveFile = null;
+  let selectedMoveDestination = null;
+
+  async function openMoveDialog(btn) {
+    const path = btn.dataset.path;
+    const name = btn.dataset.name;
+
+    currentMoveFile = path;
+    document.getElementById('move-filename').textContent = name;
+
+    // Build folder tree from current directory listing
+    const treeDiv = document.getElementById('move-tree');
+    treeDiv.innerHTML = '';
+
+    // Add root option
+    const rootItem = document.createElement('div');
+    rootItem.className = 'move-tree-item move-tree-item-root';
+    rootItem.innerHTML = '<span class="move-tree-label" onclick="selectMoveDestination(\"\")">📁 / (root)</span>';
+    treeDiv.appendChild(rootItem);
+
+    // Build subdirectories from the file table
+    const tbody = document.querySelector('.file-table tbody');
+    const dirs = [];
+    tbody.querySelectorAll('tr:not(.parent-row)').forEach((row) => {
+      const nameLink = row.querySelector('.name-cell a');
+      if (nameLink && row.querySelector('.name-cell .icon:contains("📁")')) {
+        const dirLink = nameLink.getAttribute('href');
+        if (dirLink.startsWith('/browse/')) {
+          const dirPath = dirLink.replace('/browse/', '').replace(/\/$/, '');
+          dirs.push(dirPath);
+        }
+      }
+    });
+
+    // Better way: get directories from table using the folder emoji
+    const dirItems = [];
+    tbody.querySelectorAll('tr').forEach((row) => {
+      const icon = row.querySelector('.icon');
+      const link = row.querySelector('.name-cell a');
+      if (icon && icon.textContent === '📁' && link) {
+        const href = link.getAttribute('href');
+        if (href && href.startsWith('/browse/')) {
+          const dirPath = href.replace('/browse/', '').replace(/\/$/, '');
+          dirItems.push(dirPath);
+        }
+      }
+    });
+
+    // Add subdirectories
+    dirItems.forEach((dirPath) => {
+      const item = document.createElement('div');
+      item.className = 'move-tree-item';
+      const level = (dirPath.match(/\//g) || []).length;
+      item.style.paddingLeft = (level + 1) * 1.5 + 'rem';
+      const label = dirPath.split('/').pop();
+      item.innerHTML = `<span class="move-tree-label" onclick="selectMoveDestination('${dirPath}')">📁 ${label}</span>`;
+      treeDiv.appendChild(item);
+    });
+
+    selectedMoveDestination = null;
+    document.getElementById('move-dialog').classList.remove('hidden');
+  }
+
+  function selectMoveDestination(destPath) {
+    // Clear previous selection
+    document.querySelectorAll('.move-tree-label').forEach((el) => {
+      el.classList.remove('selected');
+    });
+
+    // Mark new selection
+    const label = event.target;
+    label.classList.add('selected');
+    selectedMoveDestination = destPath;
+  }
+
+  async function confirmMove() {
+    if (!currentMoveFile || selectedMoveDestination === null) {
+      alert('Please select a destination');
+      return;
+    }
+
+    const sourcePath = currentMoveFile;
+    const sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+    const fileName = sourcePath.substring(sourcePath.lastIndexOf('/') + 1);
+    const destinationPath = selectedMoveDestination ? selectedMoveDestination + '/' + fileName : fileName;
+
+    try {
+      const resp = await fetch('/files/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: sourcePath, destination: destinationPath }),
+      });
+
+      if (resp.ok) {
+        closeMoveDialog();
+        location.reload();
+      } else {
+        const err = await resp.json();
+        alert('Error: ' + (err.detail || resp.statusText));
+      }
+    } catch (e) {
+      alert('Move failed: ' + e.message);
+    }
+  }
+
+  function closeMoveDialog() {
+    document.getElementById('move-dialog').classList.add('hidden');
+    currentMoveFile = null;
+    selectedMoveDestination = null;
+  }
+
+  document.getElementById('move-dialog').addEventListener('click', (e) => {
+    if (e.target.id === 'move-dialog') closeMoveDialog();
+  });
 </script>
 {% endblock %}
