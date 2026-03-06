@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     thumb_cache_ttl: int = 60                          # TTLCache seconds
     thumb_max_concurrent: int = 2                      # max ffmpeg processes
 
+    # Phase 5: TUS resumable uploads
+    tus_max_age_hours: int = 24                        # cleanup abandoned uploads after N hours
+
     model_config = {"env_prefix": "POC_", "env_file": ".env"}
 
     @property
@@ -46,6 +49,11 @@ class Settings(BaseSettings):
     def thumbnails_path(self) -> Path:
         """Path to the thumbnails directory (hidden in storage)."""
         return Path(self.storage_path) / ".thumbnails"
+
+    @property
+    def tus_upload_path(self) -> Path:
+        """Path to the TUS partial uploads directory (hidden in storage)."""
+        return Path(self.storage_path) / ".uploads"
 
 
 settings = Settings()

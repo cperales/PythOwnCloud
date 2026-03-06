@@ -1,13 +1,14 @@
 """
-Authentication — API key (scripts) and session cookie (browser).
+Authentication — API key (scripts) and session cookie (browser), HTTP Basic Auth (WebDAV/TUS).
 Behind Tailscale this is a second layer of defense, not the only one.
 """
 
+import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import Cookie, HTTPException, Security
+from fastapi import Cookie, HTTPException, Security, Header
 from fastapi.security import APIKeyHeader
 
 from pythowncloud.config import settings
@@ -79,3 +80,41 @@ async def verify_api_key_or_session(
             return session
 
     raise HTTPException(status_code=401, detail="Valid API key or session required")
+
+
+# ─── HTTP Basic Auth (Phase 5: WebDAV, TUS) ──────────────────────────────
+
+async def verify_basic_auth(authorization: str | None = Header(default=None)) -> str:
+    """
+    Verify HTTP Basic Auth (Authorization: Basic base64(user:pass)).
+    The username is accepted as anything (single-user app).
+    The password is verified against the login password hash.
+    Returns the username (always "admin" for single-user).
+    Used by WebDAV and TUS endpoints.
+    """
+    if not authorization or not authorization.lower().startswith("basic "):
+        raise HTTPException(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="PythOwnCloud"'},
+            detail="Authentication required",
+        )
+
+    try:
+        encoded = authorization[6:]  # skip "Basic "
+        decoded = base64.b64decode(encoded).decode()
+        username, password = decoded.split(":", 1)
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="PythOwnCloud"'},
+            detail="Invalid Basic Auth format",
+        )
+
+    if not verify_password(password):
+        raise HTTPException(
+            status_code=403,
+            headers={"WWW-Authenticate": 'Basic realm="PythOwnCloud"'},
+            detail="Invalid password",
+        )
+
+    return username
