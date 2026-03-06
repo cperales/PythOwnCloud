@@ -2,7 +2,7 @@ FROM python:3.14-trixie
 
 # Minimal system deps
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tini curl && \
+    apt-get install -y --no-install-recommends ffmpeg tini curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

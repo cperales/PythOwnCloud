@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pythowncloud.config import settings
 import pythowncloud.db as db
+import pythowncloud.thumbnails as thumbnails
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ async def run_scan() -> dict:
     scanned = 0
     updated = 0
     errors = 0
+    thumbs_generated = 0
     seen_paths: list[str] = []
 
     for fspath in storage.rglob("*"):
@@ -82,21 +84,54 @@ async def run_scan() -> dict:
                     modified_at=mtime,
                 )
                 updated += 1
+
+            # Thumbnail generation (after metadata upsert)
+            if not fspath.is_dir():
+                ext = fspath.suffix.lstrip(".").lower()
+                if thumbnails.is_thumbable(ext):
+                    if not thumbnails.thumbnail_exists(rel_path):
+                        if stat.st_size <= settings.thumb_max_source_bytes:
+                            ok = await thumbnails.generate_thumbnail(
+                                fspath, thumbnails.thumb_path_for(rel_path), ext
+                            )
+                            if ok:
+                                thumbs_generated += 1
+                                if thumbs_generated % 50 == 0:
+                                    logger.info("Thumbnails: %d generated so far...", thumbs_generated)
         except (PermissionError, OSError) as e:
             logger.warning("Scan error on %s: %s", fspath, e)
             errors += 1
 
     deleted = await db.delete_files_not_in(seen_paths)
+
+    # Clean orphan thumbnails
+    thumbs_dir = settings.thumbnails_path
+    orphans_removed = 0
+    if thumbs_dir.exists():
+        for tp in thumbs_dir.rglob("*.webp"):
+            # Derive original rel_path from thumbnail path
+            rel_thumb = str(tp.relative_to(thumbs_dir))
+            # Remove .webp suffix to get original rel_path
+            rel_original = rel_thumb.removesuffix(".webp")
+            if rel_original not in seen_paths:
+                tp.unlink(missing_ok=True)
+                thumbnails.invalidate_thumbnail(rel_original)
+                orphans_removed += 1
+        if orphans_removed:
+            logger.info("Removed %d orphan thumbnails", orphans_removed)
+
     purged = await db.purge_expired_sessions()
 
     logger.info(
-        "Scan complete: scanned=%d updated=%d deleted=%d errors=%d sessions_purged=%d",
-        scanned, updated, deleted, errors, purged,
+        "Scan complete: scanned=%d updated=%d deleted=%d thumbs=%d errors=%d sessions_purged=%d",
+        scanned, updated, deleted, thumbs_generated, errors, purged,
     )
     return {
         "scanned": scanned,
         "updated": updated,
         "deleted_from_db": deleted,
+        "thumbnails_generated": thumbs_generated,
+        "orphan_thumbnails_removed": orphans_removed,
         "errors": errors,
         "sessions_purged": purged,
     }

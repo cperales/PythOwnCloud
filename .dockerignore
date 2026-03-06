@@ -5,6 +5,3 @@ data/
 __pycache__/
 .pytest_cache/
 example_data/
-
-# Files
-.env

@@ -160,6 +160,15 @@ main {
 .name-cell a:hover { text-decoration: underline; }
 .icon { margin-right: .35rem; }
 
+.thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-right: .35rem;
+}
+
 .size-cell { white-space: nowrap; color: #555; text-align: right; }
 .date-cell { white-space: nowrap; color: #777; }
 .action-cell { width: 36px; text-align: center; }

@@ -28,12 +28,24 @@ class Settings(BaseSettings):
     # Phase 2: session TTL in days
     session_ttl_days: int = 7
 
+    # Phase 3: Thumbnails
+    thumb_width: int = 320
+    thumb_quality: int = 80
+    thumb_max_source_bytes: int = 500 * 1024 * 1024  # skip huge files in scan
+    thumb_cache_ttl: int = 60                          # TTLCache seconds
+    thumb_max_concurrent: int = 2                      # max ffmpeg processes
+
     model_config = {"env_prefix": "POC_", "env_file": ".env"}
 
     @property
     def db_path(self) -> Path:
         """Path to the SQLite database file (hidden in storage)."""
         return Path(self.storage_path) / ".pythowncloud.db"
+
+    @property
+    def thumbnails_path(self) -> Path:
+        """Path to the thumbnails directory (hidden in storage)."""
+        return Path(self.storage_path) / ".thumbnails"
 
 
 settings = Settings()

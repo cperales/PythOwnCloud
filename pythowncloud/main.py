@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cachetools import TTLCache
 from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,9 +18,10 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from pythowncloud.config import settings
-from pythowncloud.auth import verify_api_key, verify_password, create_session, verify_session
+from pythowncloud.auth import verify_api_key, verify_password, create_session, verify_session, verify_api_key_or_session
 import pythowncloud.db as db
 import pythowncloud.scanner as scanner
+import pythowncloud.thumbnails as thumbnails
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,17 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# ─── Caching (Phase 3) ──────────────────────────────────────────────────────
+
+_listing_cache: TTLCache[str, list[dict]] = TTLCache(maxsize=256, ttl=30)
+
+
+def _invalidate_listing_cache(rel_path: str) -> None:
+    """Invalidate the listing cache entry for the parent directory of rel_path."""
+    parent = str(Path(rel_path).parent)
+    cache_key = parent if parent != "." else ""
+    _listing_cache.pop(cache_key, None)
 
 
 # ─── Models ────────────────────────────────────────────────────────────────────
@@ -177,6 +190,33 @@ async def logout(session: str | None = Cookie(default=None)):
     return redirect
 
 
+@app.get("/thumb/{file_path:path}", include_in_schema=False)
+async def get_thumbnail(
+    file_path: str,
+    _auth: str = Depends(verify_api_key_or_session),
+):
+    """Serve a WebP thumbnail for the given file path."""
+    rel_path = file_path.strip("/")
+
+    # Path traversal protection
+    safe_path(rel_path)
+
+    # Check extension
+    ext = Path(rel_path).suffix.lstrip(".").lower()
+    if not thumbnails.is_thumbable(ext):
+        raise HTTPException(status_code=404, detail="No thumbnail for this file type")
+
+    thumb = await thumbnails.ensure_thumbnail(rel_path, ext)
+    if thumb is None or not thumb.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail unavailable")
+
+    return FileResponse(
+        path=str(thumb),
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/browse/", response_class=HTMLResponse, include_in_schema=False)
 @app.get("/browse/{browse_path:path}", response_class=HTMLResponse, include_in_schema=False)
 async def browse(
@@ -195,7 +235,20 @@ async def browse(
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Not a directory")
 
-    rows = await db.list_directory(browse_path)
+    # Use cached listing if available
+    cache_key = browse_path or "/"
+    rows = _listing_cache.get(cache_key)
+    if rows is None:
+        rows = await db.list_directory(browse_path)
+        _listing_cache[cache_key] = rows
+
+    # Annotate rows with thumbnail availability
+    for row in rows:
+        if not row["is_dir"] and thumbnails.is_thumbable(row.get("extension")):
+            row["has_thumb"] = thumbnails.thumbnail_exists(row["path"])
+        else:
+            row["has_thumb"] = False
+
     total_size = sum(r["size"] for r in rows if not r["is_dir"])
 
     return templates.TemplateResponse(
@@ -250,6 +303,7 @@ async def trigger_scan(
         try:
             await scanner.run_scan()
         finally:
+            _listing_cache.clear()
             _scan_running = False
 
     background_tasks.add_task(_run_and_clear)
@@ -325,7 +379,7 @@ async def list_root(_key: str = Depends(verify_api_key)):
 async def upload_file(
     file_path: str,
     file: UploadFile,
-    _key: str = Depends(verify_api_key),
+    _auth: str = Depends(verify_api_key_or_session),
 ):
     target = safe_path(file_path)
 
@@ -359,6 +413,19 @@ async def upload_file(
         except Exception:
             logger.warning("DB upsert failed after upload of %s", file_path, exc_info=True)
 
+    # Generate thumbnail for supported types (best-effort)
+    rel = str(target.relative_to(STORAGE))
+    ext_lower = target.suffix.lstrip(".").lower()
+    if thumbnails.is_thumbable(ext_lower):
+        try:
+            thumbnails.invalidate_thumbnail(rel)
+            await thumbnails.ensure_thumbnail(rel, ext_lower)
+        except Exception:
+            logger.warning("Thumbnail generation failed for %s", file_path, exc_info=True)
+
+    # Invalidate listing cache for parent directory
+    _invalidate_listing_cache(rel)
+
     return UploadResponse(
         path=str(target.relative_to(STORAGE)),
         size=size,
@@ -368,7 +435,7 @@ async def upload_file(
 
 
 @app.delete("/files/{file_path:path}")
-async def delete_file(file_path: str, _key: str = Depends(verify_api_key)):
+async def delete_file(file_path: str, _auth: str = Depends(verify_api_key_or_session)):
     target = safe_path(file_path)
 
     if not target.exists():
@@ -381,7 +448,17 @@ async def delete_file(file_path: str, _key: str = Depends(verify_api_key)):
         )
 
     size = target.stat().st_size
+    rel = str(target.relative_to(STORAGE))
     target.unlink()
+
+    # Remove thumbnail (best-effort)
+    try:
+        thumbnails.invalidate_thumbnail(rel)
+    except Exception:
+        logger.warning("Thumbnail cleanup failed for %s", file_path, exc_info=True)
+
+    # Invalidate listing cache for parent directory
+    _invalidate_listing_cache(rel)
 
     # Remove from DB (best-effort)
     if db.get_pool() is not None:

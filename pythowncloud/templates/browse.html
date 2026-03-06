@@ -49,14 +49,18 @@
           <span class="icon">&#x1F4C1;</span>
           <a href="/browse/{{ item.path }}/">{{ item.filename }}</a>
         {% else %}
-          <span class="icon">
-            {% if item.extension in ('jpg', 'jpeg', 'png', 'gif', 'webp', 'heic') %}&#x1F5BC;
-            {% elif item.extension in ('mp4', 'mov', 'avi', 'mkv') %}&#x1F3AC;
-            {% elif item.extension in ('mp3', 'flac', 'aac', 'ogg') %}&#x1F3B5;
-            {% elif item.extension == 'pdf' %}&#x1F4D5;
-            {% else %}&#x1F4C4;
-            {% endif %}
-          </span>
+          {% if item.has_thumb %}
+            <img class="thumb" src="/thumb/{{ item.path }}" alt="" loading="lazy">
+          {% else %}
+            <span class="icon">
+              {% if item.extension in ('jpg','jpeg','png','gif','webp','heic','bmp','tiff') %}&#x1F5BC;
+              {% elif item.extension in ('mp4','mov','avi','mkv','webm') %}&#x1F3AC;
+              {% elif item.extension in ('mp3','flac','aac','ogg') %}&#x1F3B5;
+              {% elif item.extension == 'pdf' %}&#x1F4D5;
+              {% else %}&#x1F4C4;
+              {% endif %}
+            </span>
+          {% endif %}
           <a href="/files/{{ item.path }}" download>{{ item.filename }}</a>
         {% endif %}
       </td>

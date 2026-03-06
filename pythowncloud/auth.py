@@ -56,3 +56,26 @@ async def verify_session(session: str | None = Cookie(default=None)) -> str:
     if row is None:
         raise HTTPException(status_code=307, headers={"Location": "/login"})
     return session
+
+
+# ─── Combined auth (Phase 3) ───────────────────────────────────────────────
+
+async def verify_api_key_or_session(
+    api_key: str | None = Security(API_KEY_HEADER),
+    session: str | None = Cookie(default=None),
+) -> str:
+    """
+    Accept either a valid X-API-Key header OR a valid session cookie.
+    Used for endpoints that serve both scripts and browsers (e.g., /thumb/, /files/).
+    """
+    # Try API key first
+    if api_key is not None and api_key == settings.api_key:
+        return api_key
+
+    # Fall back to session cookie
+    if session is not None and db.get_pool() is not None:
+        row = await db.get_session(session)
+        if row is not None:
+            return session
+
+    raise HTTPException(status_code=401, detail="Valid API key or session required")
