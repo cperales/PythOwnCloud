@@ -328,7 +328,7 @@ async def health():
 
 
 @app.get("/files/{file_path:path}", response_model=None)
-async def get_file(file_path: str, _key: str = Depends(verify_api_key)):
+async def get_file(file_path: str, _key: str = Depends(verify_api_key_or_session)):
     """
     GET /files/<path>
     - Directory → JSON listing (DB-first, filesystem fallback)
@@ -376,7 +376,7 @@ async def get_file(file_path: str, _key: str = Depends(verify_api_key)):
 
 
 @app.get("/files/", response_model=DirectoryListing)
-async def list_root(_key: str = Depends(verify_api_key)):
+async def list_root(_key: str = Depends(verify_api_key_or_session)):
     return await get_file("", _key=_key)
 
 

@@ -60,12 +60,10 @@ class TestAuth:
     def test_missing_key_returns_401(self, client):
         r = client.get("/files/")
         assert r.status_code == 401
-        assert "Missing" in r.json()["detail"]
 
-    def test_wrong_key_returns_403(self, client):
+    def test_wrong_key_returns_401(self, client):
         r = client.get("/files/", headers={"X-API-Key": "wrong"})
-        assert r.status_code == 403
-        assert "Invalid" in r.json()["detail"]
+        assert r.status_code == 401
 
 
 # ─── List files ──────────────────────────────────────────────────────────────────
