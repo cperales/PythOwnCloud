@@ -1,8 +1,8 @@
-FROM python:3.14-trixie
+FROM python:3.14-slim
 
 # Minimal system deps
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg tini curl && \
+    apt-get install -y --no-install-recommends gcc rustc cargo ffmpeg tini curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

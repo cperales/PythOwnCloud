@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - /home/carlos/pruebas/pythowncloud/data:/data
+      - /mnt/external-disk/pythowncloud:/data
     environment:
       - POC_API_KEY=${POC_API_KEY}
       - POC_STORAGE_PATH=/data
