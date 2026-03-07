@@ -24,8 +24,8 @@ def client_no_db(tmp_path):
     try:
         config.settings.storage_path = str(tmp_path)
         config.settings.api_key = API_KEY
-        import bcrypt
-        config.settings.login_password_hash = bcrypt.hashpw(b"hunter2", bcrypt.gensalt()).decode()
+        from pythowncloud.passwords import hash_password
+        config.settings.login_password_hash = hash_password("hunter2")
 
         yield TestClient(main.app, raise_server_exceptions=True)
     finally:
@@ -63,17 +63,17 @@ class TestConfig:
 class TestVerifyPassword:
     def test_correct_password(self):
         from pythowncloud.auth import verify_password
-        import bcrypt
+        from pythowncloud.passwords import hash_password
         original = config.settings.login_password_hash
-        config.settings.login_password_hash = bcrypt.hashpw(b"hunter2", bcrypt.gensalt()).decode()
+        config.settings.login_password_hash = hash_password("hunter2")
         assert verify_password("hunter2") is True
         config.settings.login_password_hash = original
 
     def test_wrong_password(self):
         from pythowncloud.auth import verify_password
-        import bcrypt
+        from pythowncloud.passwords import hash_password
         original = config.settings.login_password_hash
-        config.settings.login_password_hash = bcrypt.hashpw(b"hunter2", bcrypt.gensalt()).decode()
+        config.settings.login_password_hash = hash_password("hunter2")
         assert verify_password("wrong") is False
         config.settings.login_password_hash = original
 

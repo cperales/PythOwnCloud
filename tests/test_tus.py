@@ -22,9 +22,8 @@ def override_settings(tmp_path_factory):
     config.settings.storage_path = str(storage)
     config.settings.api_key = API_KEY
     # Set a login password hash for TUS Basic Auth
-    import bcrypt
-    password_hash = bcrypt.hashpw(TUS_PASSWORD.encode(), bcrypt.gensalt()).decode()
-    config.settings.login_password_hash = password_hash
+    from pythowncloud.passwords import hash_password
+    config.settings.login_password_hash = hash_password(TUS_PASSWORD)
     return storage
 
 

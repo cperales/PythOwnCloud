@@ -7,11 +7,11 @@ import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 
-import bcrypt
 from fastapi import Cookie, HTTPException, Security, Header
 from fastapi.security import APIKeyHeader
 
 from pythowncloud.config import settings
+from pythowncloud.passwords import verify_password as _verify_password
 import pythowncloud.db as db
 
 # ─── API key auth (Phase 1, unchanged) ─────────────────────────────────────────
@@ -30,10 +30,10 @@ async def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
 # ─── Session / browser auth (Phase 2) ──────────────────────────────────────────
 
 def verify_password(plain: str) -> bool:
-    """Return True if plain matches the stored bcrypt hash."""
+    """Return True if plain matches the stored scrypt hash."""
     if not settings.login_password_hash:
         return False
-    return bcrypt.checkpw(plain.encode(), settings.login_password_hash.encode())
+    return _verify_password(plain, settings.login_password_hash)
 
 
 async def create_session() -> str:

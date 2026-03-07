@@ -21,10 +21,9 @@ def override_settings(tmp_path_factory):
     storage = tmp_path_factory.mktemp("data")
     config.settings.storage_path = str(storage)
     config.settings.api_key = API_KEY
-    # Set a login password hash (for bcrypt verification in Basic Auth)
-    import bcrypt
-    password_hash = bcrypt.hashpw(WEBDAV_PASSWORD.encode(), bcrypt.gensalt()).decode()
-    config.settings.login_password_hash = password_hash
+    # Set a login password hash (for scrypt verification in Basic Auth)
+    from pythowncloud.passwords import hash_password
+    config.settings.login_password_hash = hash_password(WEBDAV_PASSWORD)
     return storage
 
 

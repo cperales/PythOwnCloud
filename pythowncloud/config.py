@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     # Max upload size in bytes (default 2 GB)
     max_upload_bytes: int = 2 * 1024 * 1024 * 1024
 
-    # Phase 2: bcrypt hash of the web UI login password
-    # Generate: python3 -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"
+    # Phase 2: scrypt hash of the web UI login password
+    # Generate: python3 -c "from pythowncloud.passwords import hash_password; print(hash_password('pw'))"
     login_password_hash: str = ""
 
     # Phase 2: session TTL in days
