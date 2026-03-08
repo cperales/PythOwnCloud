@@ -2,18 +2,36 @@
 PythOwnCloud Server — Phase 2: Metadata DB & Web File Browser, Phase 5: WebDAV & TUS
 """
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 import pythowncloud.db as db
 from pythowncloud.config import settings
 from pythowncloud.routers import login, files, dirs, browse, search, webdav, tus
 from pythowncloud.routers.tus import cleanup_abandoned_uploads
 
+logger = logging.getLogger("uvicorn.access")
+
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class HealthCheckFilter(BaseHTTPMiddleware):
+    """Log /health checks at DEBUG level instead of INFO to reduce noise."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Set log level to DEBUG for /health checks
+        if request.url.path == "/health":
+            logger.debug(
+                f'{request.client.host}:{request.client.port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code}'
+            )
+        return response
 
 
 @asynccontextmanager
@@ -40,6 +58,8 @@ app = FastAPI(
     description="Lightweight self-hosted cloud storage API",
     lifespan=lifespan,
 )
+
+app.add_middleware(HealthCheckFilter)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
