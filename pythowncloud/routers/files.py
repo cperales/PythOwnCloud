@@ -7,7 +7,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from pythowncloud.auth import verify_api_key_or_session
@@ -79,7 +79,7 @@ async def get_file(file_path: str, _key: str = Depends(verify_api_key_or_session
 @router.put("/files/{file_path:path}")
 async def upload_file(
     file_path: str,
-    file: UploadFile,
+    request: Request,
     _auth: str = Depends(verify_api_key_or_session),
 ):
     target = safe_path(file_path)
@@ -89,7 +89,7 @@ async def upload_file(
     size = 0
     h = hashlib.sha256()
     with open(target, "wb") as f:
-        while chunk := await file.read(8192):
+        async for chunk in request.stream():
             f.write(chunk)
             h.update(chunk)
             size += len(chunk)

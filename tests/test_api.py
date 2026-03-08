@@ -80,7 +80,7 @@ class TestListFiles:
         client.put(
             "/files/photos/2025/shot.txt",
             headers=auth,
-            files={"file": ("shot.txt", b"pixel", "text/plain")},
+            content=b"pixel",
         )
 
         r = client.get("/files/photos/2025/", headers=auth)
@@ -102,7 +102,7 @@ class TestDownloadFile:
         client.put(
             "/files/documents/hello.txt",
             headers=auth,
-            files={"file": ("hello.txt", content, "text/plain")},
+            content=content,
         )
 
         r = client.get("/files/documents/hello.txt", headers=auth)
@@ -122,7 +122,7 @@ class TestUploadFile:
         r = client.put(
             "/files/documents/upload_test.txt",
             headers=auth,
-            files={"file": ("upload_test.txt", content, "text/plain")},
+            content=content,
         )
         assert r.status_code == 200
         body = r.json()
@@ -137,14 +137,14 @@ class TestUploadFile:
         r = client.put(
             "/files/new/nested/dir/file.txt",
             headers=auth,
-            files={"file": ("file.txt", b"nested", "text/plain")},
+            content=b"nested",
         )
         assert r.status_code == 200
 
     def test_overwrite_existing_file(self, client, auth):
         path = "/files/documents/overwrite_me.txt"
-        client.put(path, headers=auth, files={"file": ("f.txt", b"v1", "text/plain")})
-        client.put(path, headers=auth, files={"file": ("f.txt", b"v2", "text/plain")})
+        client.put(path, headers=auth, content=b"v1")
+        client.put(path, headers=auth, content=b"v2")
 
         r = client.get(path, headers=auth)
         assert r.content == b"v2"
@@ -157,7 +157,7 @@ class TestDeleteFile:
         client.put(
             "/files/documents/to_delete.txt",
             headers=auth,
-            files={"file": ("to_delete.txt", b"bye", "text/plain")},
+            content=b"bye",
         )
         r = client.delete("/files/documents/to_delete.txt", headers=auth)
         assert r.status_code == 200
@@ -210,7 +210,7 @@ class TestSecurity:
         r = client.put(
             "/files/../../etc/evil.txt",
             headers=auth,
-            files={"file": ("evil.txt", b"bad", "text/plain")},
+            content=b"bad",
         )
         assert r.status_code in (403, 404)
 
@@ -223,7 +223,7 @@ class TestMoveFile:
         client.put(
             "/files/source.txt",
             headers=auth,
-            files={"file": ("source.txt", b"hello", "text/plain")},
+            content=b"hello",
         )
         client.post("/mkdir/dest_dir", headers=auth)
 
@@ -257,12 +257,12 @@ class TestMoveFile:
         client.put(
             "/files/a.txt",
             headers=auth,
-            files={"file": ("a.txt", b"a", "text/plain")},
+            content=b"a",
         )
         client.put(
             "/files/b.txt",
             headers=auth,
-            files={"file": ("b.txt", b"b", "text/plain")},
+            content=b"b",
         )
 
         r = client.post(
@@ -276,7 +276,7 @@ class TestMoveFile:
         client.put(
             "/files/same.txt",
             headers=auth,
-            files={"file": ("same.txt", b"same", "text/plain")},
+            content=b"same",
         )
 
         r = client.post(

@@ -169,7 +169,7 @@ class TestPhase1WithDB:
         r = client_no_db.put(
             "/files/p2test/hello.txt",
             headers=auth,
-            files={"file": ("hello.txt", b"phase2 content", "text/plain")},
+            content=b"phase2 content",
         )
         assert r.status_code == 200
         body = r.json()
@@ -179,7 +179,7 @@ class TestPhase1WithDB:
         client_no_db.put(
             "/files/p2test/dl.txt",
             headers=auth,
-            files={"file": ("dl.txt", b"download me", "text/plain")},
+            content=b"download me",
         )
         r = client_no_db.get("/files/p2test/dl.txt", headers=auth)
         assert r.status_code == 200
@@ -189,7 +189,7 @@ class TestPhase1WithDB:
         client_no_db.put(
             "/files/p2fs/test.txt",
             headers=auth,
-            files={"file": ("test.txt", b"fallback test", "text/plain")},
+            content=b"fallback test",
         )
         r = client_no_db.get("/files/p2fs/", headers=auth)
         assert r.status_code == 200
@@ -201,7 +201,7 @@ class TestPhase1WithDB:
         client_no_db.put(
             "/files/p2test/del.txt",
             headers=auth,
-            files={"file": ("del.txt", b"bye", "text/plain")},
+            content=b"bye",
         )
         r = client_no_db.delete("/files/p2test/del.txt", headers=auth)
         assert r.status_code == 200

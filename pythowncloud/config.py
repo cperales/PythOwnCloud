@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Phase 5: TUS resumable uploads
     tus_max_age_hours: int = 24                        # cleanup abandoned uploads after N hours
 
-    model_config = {"env_prefix": "POC_", "env_file": ".env"}
+    model_config = {"env_prefix": "POC_", "env_file": ".env", "extra": "ignore"}
 
     @property
     def db_path(self) -> Path:
