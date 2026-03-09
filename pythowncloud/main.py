@@ -69,4 +69,5 @@ app.include_router(dirs.router)
 app.include_router(browse.router)
 app.include_router(search.router)
 app.include_router(webdav.router)
+app.include_router(webdav.router, prefix="")  # Also serve WebDAV at root for clients that don't support path prefixes
 app.include_router(tus.router)
