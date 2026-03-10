@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # Path to the root storage directory (your external drive)
     storage_path: str = "/data"
 
+    # Path to the database directory (can be on faster storage like SD card)
+    db_path_dir: str = "/data"
+
     # API key for authentication — change this!
     api_key: str = "a1b2c3d4"
 
@@ -39,12 +42,11 @@ class Settings(BaseSettings):
     tus_max_age_hours: int = 24                        # cleanup abandoned uploads after N hours
 
     model_config = {"env_prefix": "POC_", "env_file": ".env", "extra": "ignore"}
-    db_path: str = "pythowncloud.db"
 
     @property
     def db_path(self) -> Path:
-        """Path to the SQLite database file (hidden in storage)."""
-        return Path(self.db_path)
+        """Path to the SQLite database file (can be on separate faster storage)."""
+        return Path(self.db_path_dir) / ".pythowncloud.db"
 
     @property
     def thumbnails_path(self) -> Path:

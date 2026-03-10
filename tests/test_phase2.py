@@ -43,9 +43,9 @@ def auth():
 
 class TestConfig:
     def test_db_path_is_hidden(self):
-        """DB path should be in storage directory as .pythowncloud.db."""
-        cfg = config.Settings(storage_path="/test/data")
-        assert str(cfg.db_path) == "/test/data/.pythowncloud.db"
+        """DB path should be in db_path_dir as .pythowncloud.db."""
+        cfg = config.Settings(db_path_dir="/var/lib/poc")
+        assert str(cfg.db_path) == "/var/lib/poc/.pythowncloud.db"
 
     def test_session_ttl_default(self):
         cfg = config.Settings()
