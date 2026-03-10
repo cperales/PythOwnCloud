@@ -51,12 +51,26 @@ async def create_pool() -> None:
     """Open the SQLite connection and enable WAL mode."""
     global _conn
     db_path = settings.db_path
-    _conn = await aiosqlite.connect(str(db_path))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _conn = await aiosqlite.connect(str(db_path))
+    except sqlite3.OperationalError as e:
+        logger.error(f"Failed to connect to DB at {db_path}: {e}")
+        raise
     # Enable WAL mode for better concurrency
     await _conn.execute("PRAGMA journal_mode=WAL")
     # Set row_factory so rows can be accessed by column name
     _conn.row_factory = aiosqlite.Row
     logger.info(f"DB connection opened at {db_path}")
+
+
+async def is_empty() -> bool:
+    """Return True if the files table has no rows (fresh DB)."""
+    if _conn is None:
+        return True
+    cursor = await _conn.execute("SELECT COUNT(*) FROM files")
+    row = await cursor.fetchone()
+    return row[0] == 0
 
 
 async def close_pool() -> None:

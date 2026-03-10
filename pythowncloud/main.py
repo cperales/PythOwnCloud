@@ -15,6 +15,7 @@ import pythowncloud.db as db
 from pythowncloud.config import settings
 from pythowncloud.routers import login, files, dirs, browse, search, webdav, tus
 from pythowncloud.routers.tus import cleanup_abandoned_uploads
+from pythowncloud.scanner import run_scan
 
 logger = logging.getLogger("uvicorn.access")
 
@@ -39,6 +40,10 @@ async def lifespan(app: FastAPI):
     # Startup
     await db.create_pool()
     await db.init_schema()
+
+    if await db.is_empty():
+        logger.info("Fresh database detected — triggering initial scan")
+        asyncio.create_task(run_scan())
 
     # Ensure TUS upload directory exists
     settings.tus_upload_path.mkdir(parents=True, exist_ok=True)
