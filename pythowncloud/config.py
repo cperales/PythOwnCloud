@@ -39,11 +39,12 @@ class Settings(BaseSettings):
     tus_max_age_hours: int = 24                        # cleanup abandoned uploads after N hours
 
     model_config = {"env_prefix": "POC_", "env_file": ".env", "extra": "ignore"}
+    db_path: str = "pythowncloud.db"
 
     @property
     def db_path(self) -> Path:
         """Path to the SQLite database file (hidden in storage)."""
-        return Path(self.storage_path) / ".pythowncloud.db"
+        return Path(self.db_path)
 
     @property
     def thumbnails_path(self) -> Path:
