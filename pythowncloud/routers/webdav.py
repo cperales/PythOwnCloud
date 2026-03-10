@@ -248,12 +248,15 @@ async def upload_file(
     # Generate thumbnail if needed
     rel = str(target.relative_to(get_storage()))
     ext_lower = target.suffix.lstrip(".").lower()
-    if thumbnails.is_thumbable(ext_lower):
+    thumbnails.record_upload()
+    if thumbnails.is_thumbable(ext_lower) and not thumbnails.should_defer_thumbnail():
         try:
             thumbnails.invalidate_thumbnail(rel)
             await thumbnails.ensure_thumbnail(rel, ext_lower)
         except Exception:
             logger.warning("Thumbnail generation failed for %s", file_path, exc_info=True)
+    elif thumbnails.is_thumbable(ext_lower):
+        thumbnails.invalidate_thumbnail(rel)
 
     invalidate_listing_cache(rel)
     return Response(status_code=201)

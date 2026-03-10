@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     thumb_cache_ttl: int = 60                          # TTLCache seconds
     thumb_max_concurrent: int = 2                      # max ffmpeg processes
 
+    # Phase 3.2: Deferred thumbnails during bulk uploads
+    thumb_burst_window_seconds: int = 30       # sliding window size
+    thumb_burst_threshold: int = 5             # uploads within window to trigger deferral
+    thumb_burst_cooldown_seconds: int = 60     # how long after last upload to consider burst over
+    thumb_auto_scan_after_burst: bool = True   # trigger a scan when burst subsides (unused, skipped)
+
     # Phase 5: TUS resumable uploads
     tus_max_age_hours: int = 24                        # cleanup abandoned uploads after N hours
 

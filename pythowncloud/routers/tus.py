@@ -19,6 +19,7 @@ from pythowncloud.config import settings
 from pythowncloud.helpers import get_storage, safe_path
 from pythowncloud.cache import invalidate_listing_cache
 import pythowncloud.db as db
+import pythowncloud.thumbnails as thumbnails
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,18 @@ async def upload_chunk(
                 invalidate_listing_cache(rel)
             except Exception:
                 pass
+
+            # Generate thumbnail if needed
+            ext = dest.suffix.lstrip(".").lower()
+            thumbnails.record_upload()
+            if thumbnails.is_thumbable(ext) and not thumbnails.should_defer_thumbnail():
+                try:
+                    thumbnails.invalidate_thumbnail(rel)
+                    await thumbnails.ensure_thumbnail(rel, ext)
+                except Exception:
+                    logger.warning("Thumbnail generation failed for %s", meta["destination"], exc_info=True)
+            elif thumbnails.is_thumbable(ext):
+                thumbnails.invalidate_thumbnail(rel)
 
             # Delete metadata file
             meta_file.unlink()

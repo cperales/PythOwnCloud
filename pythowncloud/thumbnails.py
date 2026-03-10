@@ -5,6 +5,8 @@ Supports WebP output with configurable dimensions and quality.
 
 import asyncio
 import logging
+import time
+from collections import deque
 from pathlib import Path
 
 from cachetools import TTLCache
@@ -29,6 +31,12 @@ _semaphore: asyncio.Semaphore | None = None
 _thumb_exists_cache: TTLCache[str, bool] = TTLCache(
     maxsize=4096, ttl=settings.thumb_cache_ttl
 )
+
+# ─── Burst detection state ──────────────────────────────────────────────────
+
+_upload_timestamps: deque[float] = deque()
+_burst_active: bool = False
+_last_upload_time: float = 0.0
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -65,10 +73,12 @@ async def _run_ffmpeg(args: list[str]) -> bool:
         )
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
+            stderr_text = stderr.decode(errors="replace")
+            logger.debug("ffmpeg full stderr for %s:\n%s", args[-1], stderr_text)
             logger.warning(
                 "ffmpeg failed (rc=%d): %s",
                 proc.returncode,
-                stderr.decode(errors="replace")[:200],
+                stderr_text.strip().splitlines()[-1] if stderr_text.strip() else "(no output)",
             )
             return False
         return True
@@ -126,6 +136,55 @@ async def generate_thumbnail(
         return False
 
     return await _run_ffmpeg(args)
+
+
+# ─── Burst detection ───────────────────────────────────────────────────────
+
+def record_upload() -> None:
+    """Record that an upload just happened. Call from PUT handlers."""
+    global _burst_active, _last_upload_time
+    now = time.monotonic()
+    _last_upload_time = now
+    _upload_timestamps.append(now)
+
+    # Trim timestamps outside the window
+    cutoff = now - settings.thumb_burst_window_seconds
+    while _upload_timestamps and _upload_timestamps[0] < cutoff:
+        _upload_timestamps.popleft()
+
+    # Check threshold
+    if len(_upload_timestamps) >= settings.thumb_burst_threshold:
+        if not _burst_active:
+            logger.info(
+                "Bulk upload detected (%d uploads in %ds) — deferring thumbnail generation",
+                len(_upload_timestamps),
+                settings.thumb_burst_window_seconds,
+            )
+        _burst_active = True
+
+
+def should_defer_thumbnail() -> bool:
+    """Return True if thumbnail generation should be skipped for this upload."""
+    global _burst_active
+    if not _burst_active:
+        return False
+
+    # Check if cooldown has elapsed since last upload
+    now = time.monotonic()
+    if now - _last_upload_time > settings.thumb_burst_cooldown_seconds:
+        logger.info(
+            "Bulk upload burst ended (%.0fs idle) — resuming inline thumbnails",
+            now - _last_upload_time,
+        )
+        _burst_active = False
+        return False
+
+    return True
+
+
+def is_burst_active() -> bool:
+    """Check if a burst is currently active (for monitoring)."""
+    return _burst_active
 
 
 # ─── High-level API ───────────────────────────────────────────────────────
