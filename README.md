@@ -8,18 +8,31 @@ Lightweight self-hosted cloud storage API, built for Raspberry Pi.
 # 1. Generate an API key
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
-# 2. Create .env from template
+# 2. Generate a password hash for the web UI
+python3 -c "import hashlib, getpass; p=getpass.getpass(); print(hashlib.sha256(p.encode()).hexdigest())"
+
+# 3. Create .env from template
 cp .env.example .env
 # Edit .env and set your POC_API_KEY and POC_LOGIN_PASSWORD_HASH
 
-# 3. Adjust docker-compose.yml volume path to your external drive
+# 4. Adjust docker-compose.yml volume path to your external drive
 
-# 4. Build and run
+# 5. Build and run
 docker compose up -d --build
 
-# 5. Test
+# 6. Test
 curl -s http://localhost:8000/health
 ```
+
+## Authentication
+
+Three authentication methods are supported:
+
+| Method | Used by | Header / Mechanism |
+| --- | --- | --- |
+| API Key | REST API (curl, scripts) | `X-API-Key: <key>` |
+| Session Cookie | Web UI | Login form, 7-day cookie |
+| HTTP Basic Auth | WebDAV, TUS | Username: anything, Password: your login password |
 
 ## Web UI
 
@@ -34,11 +47,40 @@ Open `http://<your-tailscale-ip>:8000/` in a browser to access the file manager.
 - Create and delete folders
 - Search files by name, extension, or date range via the API
 
+## WebDAV
+
+Mount as a native drive on any operating system via `/dav/` (also available at `/` for clients that don't support path prefixes).
+
+```bash
+# macOS — Finder > Go > Connect to Server
+# Windows — Map Network Drive
+# Linux — davfs2 or file manager
+
+http://<your-tailscale-ip>:8000/dav/
+```
+
+Authentication uses HTTP Basic Auth — any username, your login password.
+
+### rclone example
+
+```ini
+[poc]
+type = webdav
+url = http://<your-tailscale-ip>:8000/dav/
+vendor = other
+user = user
+pass = <your-password>
+```
+
+```bash
+rclone copy ./photos poc:/photos/2025/
+```
+
 ## API Reference
 
-All API endpoints require the `X-API-Key` header. Browser endpoints use session cookies instead.
+All API endpoints require the `X-API-Key` header.
 
-```
+```bash
 KEY="your-api-key-here"
 ```
 
@@ -61,9 +103,16 @@ curl -H "X-API-Key: $KEY" http://localhost:8000/files/documents/myfile.txt -o my
 ### Upload a file
 
 ```bash
+# Multipart form
 curl -X PUT \
   -H "X-API-Key: $KEY" \
   -F "file=@./myfile.txt" \
+  http://localhost:8000/files/documents/myfile.txt
+
+# Raw stream (alternative)
+curl -X PUT \
+  -H "X-API-Key: $KEY" \
+  --data-binary @./myfile.txt \
   http://localhost:8000/files/documents/myfile.txt
 ```
 
@@ -107,17 +156,58 @@ curl -s -H "X-API-Key: $KEY" "http://localhost:8000/api/search?q=sunset&extensio
 curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 ```
 
+## TUS Resumable Uploads
+
+Large file uploads with resume support (TUS v1.0.0) at `/tus/`. Useful for unreliable connections or files over 1 GB.
+
+```bash
+# Example with tus-client or any TUS-compatible client
+# Max upload size: 10 GB
+# Abandoned uploads are cleaned up automatically after 24 hours
+```
+
+HTTP Basic Auth is required (same password as web UI login).
+
+## Configuration
+
+Copy `.env.example` to `.env` and adjust as needed.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `POC_API_KEY` | API key for REST access | required |
+| `POC_LOGIN_PASSWORD_HASH` | SHA-256 hash of web UI / WebDAV password | required |
+| `POC_DATA_FOLDER` | Host directory to mount as storage | required |
+| `POC_STORAGE_PATH` | Storage path inside container | `/data` |
+| `POC_DB_PATH_DIR` | Directory for the SQLite database (separate from storage) | same as storage |
+| `POC_SESSION_TTL_DAYS` | Web UI session cookie lifetime | `7` |
+| `POC_THUMB_BURST_WINDOW_SECONDS` | Window for burst upload detection | `30` |
+| `POC_THUMB_BURST_THRESHOLD` | Uploads in window to trigger deferral | `5` |
+| `POC_THUMB_BURST_COOLDOWN_SECONDS` | Idle time before resuming thumbnail generation | `60` |
+| `POC_THUMB_AUTO_SCAN_AFTER_BURST` | Trigger scan after bulk upload completes | `true` |
+
+### Separate database storage
+
+On a Raspberry Pi you may want to keep the database on the SD card (faster random I/O) while files live on a large USB drive:
+
+```env
+POC_DATA_FOLDER=/mnt/external
+POC_DB_PATH_DIR=/home/pi/poc-db
+```
+
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Client (curl / mobile app / browser)                    │
+│  Client (curl / WebDAV / browser / TUS client)           │
 │                    │                                     │
 │              Tailscale VPN                               │
 │                    │                                     │
 │    ┌───────────────▼─────────────────┐                   │
 │    │     PythOwnCloud Server (POC)   │                   │
 │    │     FastAPI + uvicorn           │                   │
+│    │     REST API  /files/           │                   │
+│    │     WebDAV    /dav/ (and /)     │                   │
+│    │     TUS       /tus/             │                   │
 │    │     SQLite + LRU cache          │                   │
 │    │     ffmpeg (thumbnails)         │                   │
 │    │     ~30-50 MB RAM               │                   │
@@ -128,11 +218,18 @@ curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 │         │  5TB ext4 drive    │                           │
 │         │  ├── files...      │                           │
 │         │  ├── .thumbnails/  │                           │
+│         │  ├── .uploads/     │                           │
 │         │  └── .pythowncloud │                           │
 │         │       .db          │                           │
 │         └────────────────────┘                           │
 └──────────────────────────────────────────────────────────┘
 ```
+
+## Bulk Upload Behavior
+
+When many files are uploaded at once (e.g., rclone sync, WebDAV copy), thumbnail generation is automatically deferred to avoid ffmpeg resource contention. Once uploads settle, thumbnails are generated in the background.
+
+Tunable via `POC_THUMB_BURST_*` environment variables.
 
 ## Roadmap
 
@@ -140,4 +237,5 @@ curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 - **Phase 2** ✅ SQLite metadata tracking, web file browser with login
 - **Phase 3** ✅ Thumbnail generation (ffmpeg), LRU cache for listings
 - **Phase 4** ✅ UI polish: image lightbox, media playback, drag-upload, file move
-- **Phase 5** — Mobile photo auto-upload, desktop sync, TUS protocol
+- **Phase 5** ✅ WebDAV server, TUS resumable uploads, deferred thumbnail generation during bulk uploads
+- **Phase 6** — Mobile photo auto-upload client, desktop sync agent
