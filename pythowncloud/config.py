@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # Phase 5: TUS resumable uploads
     tus_max_age_hours: int = 24                        # cleanup abandoned uploads after N hours
 
+    # Phase 5.2: S3-compatible API
+    s3_access_key: str = "pythowncloud"               # AWS access key ID
+    s3_secret_key: str = ""                           # AWS secret access key (must be set!)
+    s3_region: str = "us-east-1"                      # AWS region (arbitrary, must match client)
+
     model_config = {"env_prefix": "POC_", "env_file": ".env", "extra": "ignore"}
 
     @property

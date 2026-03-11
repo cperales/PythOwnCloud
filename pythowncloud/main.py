@@ -13,8 +13,8 @@ from starlette.requests import Request
 
 import pythowncloud.db as db
 from pythowncloud.config import settings
-from pythowncloud.routers import login, files, dirs, browse, search, webdav, tus
-from pythowncloud.routers.tus import cleanup_abandoned_uploads
+from pythowncloud.routers import login, files, dirs, browse, search, webdav, tus, s3
+from pythowncloud.uploads import cleanup_abandoned_uploads
 from pythowncloud.scanner import run_scan
 
 logger = logging.getLogger("uvicorn.access")
@@ -76,3 +76,4 @@ app.include_router(search.router)
 app.include_router(webdav.router)
 app.include_router(webdav.router, prefix="")  # Also serve WebDAV at root for clients that don't support path prefixes
 app.include_router(tus.router)
+app.include_router(s3.router)  # S3-compatible API at /s3

@@ -188,6 +188,38 @@ async def list_directory(parent_path: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def list_all_under(prefix: str) -> list[dict[str, Any]]:
+    """
+    Return all files (recursively) under a prefix, excluding directories.
+    Used for S3 flat listing (no delimiter).
+
+    Returns only files where is_dir = 0, sorted by path.
+    Similar to: SELECT * FROM files WHERE path LIKE 'prefix/%' AND is_dir = 0
+    """
+    if _conn is None:
+        return []
+
+    # Normalize prefix: strip leading/trailing slashes
+    prefix = prefix.strip("/")
+
+    if not prefix:
+        # Empty prefix: return all files (no directories)
+        query = "SELECT * FROM files WHERE is_dir = 0 ORDER BY path ASC"
+        cursor = await _conn.execute(query)
+    else:
+        # Match all files under this prefix
+        query = """
+            SELECT * FROM files
+            WHERE path LIKE ? || '/%'
+              AND is_dir = 0
+            ORDER BY path ASC
+        """
+        cursor = await _conn.execute(query, (prefix,))
+
+    rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
 async def search_files(
     q: str | None = None,
     extension: str | None = None,

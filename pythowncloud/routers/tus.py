@@ -316,28 +316,3 @@ async def delete_upload(
         status_code=204,
         headers={"Tus-Resumable": TUS_VERSION},
     )
-
-
-async def cleanup_abandoned_uploads():
-    """
-    Clean up abandoned TUS uploads older than tus_max_age_hours.
-    Called periodically or on startup.
-    """
-    tus_dir = settings.tus_upload_path
-    if not tus_dir.exists():
-        return
-
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=settings.tus_max_age_hours)
-
-    for meta_file in tus_dir.glob("*.meta"):
-        try:
-            with open(meta_file) as f:
-                meta = json.load(f)
-            created_at = datetime.fromisoformat(meta["created_at"].replace("Z", "+00:00"))
-            if created_at < cutoff:
-                part_file = meta_file.with_suffix(".part")
-                part_file.unlink(missing_ok=True)
-                meta_file.unlink(missing_ok=True)
-                logger.info(f"Cleaned up abandoned TUS upload {meta.get('upload_id', 'unknown')}")
-        except Exception:
-            logger.warning(f"Failed to process {meta_file} during cleanup", exc_info=True)
