@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import logging
 from datetime import datetime
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import quote, parse_qs, urlparse
 
 from fastapi import Request
 from fastapi.exceptions import HTTPException
@@ -144,17 +144,24 @@ async def verify_s3_auth(request: Request) -> str:
         # For signed payload, content_sha256 should be the hex hash
         payload_hash = content_sha256
 
-    # Build query string (canonical form: sorted, with = and &)
+    # Build canonical query string (AWS Sig V4: URI-encode each key/value, then sort)
     query_string = ""
     if request.url.query:
-        qs_params = parse_qs(request.url.query, keep_blank_values=True)
-        # Flatten lists and sort
-        flat_params = []
-        for key in sorted(qs_params.keys()):
-            values = qs_params[key]
-            for value in values:
-                flat_params.append((key, value))
-        query_string = "&".join(f"{k}={v}" for k, v in sorted(flat_params))
+        # Parse raw query string preserving blank values
+        raw_pairs = []
+        for part in request.url.query.split("&"):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                raw_pairs.append((k, v))
+            else:
+                # Bare key like "versioning" or "uploads"
+                raw_pairs.append((part, ""))
+        # URI-encode keys and values per S3 spec, then sort
+        encoded_pairs = [
+            (quote(k, safe="~"), quote(v, safe="~"))
+            for k, v in raw_pairs
+        ]
+        query_string = "&".join(f"{k}={v}" for k, v in sorted(encoded_pairs))
 
     # Build canonical request
     path = request.url.path
