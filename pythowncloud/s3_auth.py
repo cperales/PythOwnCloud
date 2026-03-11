@@ -193,8 +193,10 @@ async def verify_s3_auth(request: Request) -> str:
 
     if not hmac.compare_digest(computed_signature, provided_signature):
         logger.warning(
-            "Signature mismatch for key %s: expected %s, got %s",
-            access_key, computed_signature, provided_signature,
+            "Signature mismatch for key %s (presigned=%s): expected %s, got %s. "
+            "Path=%s, QS=%s, Headers=%s, PayloadHash=%s",
+            access_key, is_presigned, computed_signature, provided_signature,
+            path, query_string[:100], headers_to_sign, payload_hash,
         )
         raise HTTPException(status_code=403, detail="SignatureDoesNotMatch")
 
