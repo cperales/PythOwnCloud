@@ -61,6 +61,19 @@ async def head_bucket(_auth: str = Depends(verify_s3_auth)):
     return Response(status_code=200)
 
 
+@router.get("/storage")
+async def get_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
+    """GET /s3/storage — ListObjectsV2 or GetBucketVersioning."""
+    # Handle ?versioning query (return empty/disabled versioning config)
+    if "versioning" in request.query_params:
+        return Response(
+            content='<?xml version="1.0" encoding="UTF-8"?>'
+            '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>',
+            media_type="application/xml",
+        )
+    return await _list_objects_v2(request)
+
+
 # ─── Single-Object Operations ──────────────────────────────────────────────
 
 @router.put("/storage/{key:path}")
