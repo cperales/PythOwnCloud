@@ -9,8 +9,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 
-def _format_iso8601(dt: datetime) -> str:
-    """Format datetime as ISO 8601 with milliseconds and Z suffix."""
+def _format_iso8601(dt) -> str:
+    """Format datetime (or ISO string) as ISO 8601 with Z suffix."""
+    if isinstance(dt, str):
+        dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
