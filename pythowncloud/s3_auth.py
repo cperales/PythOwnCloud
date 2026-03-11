@@ -171,8 +171,10 @@ async def verify_s3_auth(request: Request) -> str:
         raise HTTPException(status_code=403, detail="Date mismatch")
 
     # Build signed headers dict from request
+    # URL-decode signed headers in case it's percent-encoded (semicolon = %3B)
+    decoded_signed_headers = unquote(signed_headers)
     headers_to_sign = {}
-    for header_name in signed_headers.split(";"):
+    for header_name in decoded_signed_headers.split(";"):
         header_value = request.headers.get(header_name)
         if header_value is not None:
             headers_to_sign[header_name] = header_value
