@@ -77,3 +77,4 @@ app.include_router(webdav.router)
 app.include_router(webdav.router, prefix="")  # Also serve WebDAV at root for clients that don't support path prefixes
 app.include_router(tus.router)
 app.include_router(s3.router)  # S3-compatible API at /s3
+app.include_router(s3.router, prefix="")  # Also serve S3 at root for clients that use endpoint as base URL (e.g. S3Drive)
