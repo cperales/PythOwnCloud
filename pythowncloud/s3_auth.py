@@ -8,6 +8,7 @@ Uses only stdlib: hmac, hashlib, urllib.parse.
 import hashlib
 import hmac
 import logging
+from urllib.parse import unquote
 
 from fastapi import Request
 from fastapi.exceptions import HTTPException
@@ -155,7 +156,9 @@ async def verify_s3_auth(request: Request) -> str:
         query_string = "&".join(f"{k}={v}" for k, v in sorted(raw_pairs))
 
     # Parse credential: ACCESS_KEY/DATESTAMP/REGION/s3/aws4_request
-    credential_parts = credential.split("/")
+    # URL-decode credential in case it's percent-encoded (common in presigned URLs)
+    decoded_credential = unquote(credential)
+    credential_parts = decoded_credential.split("/")
     if len(credential_parts) != 5:
         raise HTTPException(status_code=403, detail="Invalid credential format")
 
