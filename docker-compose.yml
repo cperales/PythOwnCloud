@@ -7,10 +7,12 @@ services:
       - "8000:8000"
     volumes:
       - ${POC_DATA_FOLDER}:/data
+      - ${POC_DB_PATH_DIR}:/db
     environment:
       - POC_API_KEY=${POC_API_KEY}
       - POC_STORAGE_PATH=/data
       - POC_LOGIN_PASSWORD_HASH=${POC_LOGIN_PASSWORD_HASH}
       - POC_SESSION_TTL_DAYS=7
+      - POC_DB_PATH_DIR=/db
     mem_limit: 128m
     memswap_limit: 192m
