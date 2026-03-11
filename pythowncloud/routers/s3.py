@@ -38,7 +38,7 @@ from pythowncloud.s3_xml import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/s3")
+router = APIRouter()
 
 
 # ─── List Buckets ──────────────────────────────────────────────────────────
