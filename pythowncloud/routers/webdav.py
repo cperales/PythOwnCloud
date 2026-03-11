@@ -232,7 +232,7 @@ async def upload_file(
     except ClientDisconnect:
         logger.warning("Client disconnected during WebDAV upload of %s", file_path)
         target.unlink(missing_ok=True)
-        return Response(status_code=400, detail="Client disconnected during upload")
+        return Response(status_code=400)
 
     # Update database
     if db.get_pool() is not None:
