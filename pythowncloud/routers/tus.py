@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from starlette.requests import ClientDisconnect
 
 from pythowncloud.auth import verify_basic_auth
 from pythowncloud.config import settings
@@ -207,10 +208,14 @@ async def upload_chunk(
 
     # Read chunk from request body and accumulate size
     total_chunk_size = 0
-    with open(part_file, "ab") as f:
-        async for chunk in request.stream():
-            f.write(chunk)
-            total_chunk_size += len(chunk)
+    try:
+        with open(part_file, "ab") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+                total_chunk_size += len(chunk)
+    except ClientDisconnect:
+        logger.warning("Client disconnected during TUS chunk upload for %s", upload_id)
+        raise HTTPException(status_code=400, detail="Client disconnected during upload")
 
     # Update offset in metadata
     meta["offset"] += total_chunk_size

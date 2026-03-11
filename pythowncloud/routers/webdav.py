@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from starlette.requests import ClientDisconnect
 
 from pythowncloud.auth import verify_basic_auth
 from pythowncloud.helpers import get_storage, safe_path
@@ -222,11 +223,16 @@ async def upload_file(
 
     size = 0
     h = hashlib.sha256()
-    with open(target, "wb") as f:
-        async for chunk in request.stream():
-            f.write(chunk)
-            h.update(chunk)
-            size += len(chunk)
+    try:
+        with open(target, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+                h.update(chunk)
+                size += len(chunk)
+    except ClientDisconnect:
+        logger.warning("Client disconnected during WebDAV upload of %s", file_path)
+        target.unlink(missing_ok=True)
+        return Response(status_code=400, detail="Client disconnected during upload")
 
     # Update database
     if db.get_pool() is not None:
