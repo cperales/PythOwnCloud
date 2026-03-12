@@ -4,6 +4,7 @@ Configuration — loaded from environment variables or .env file.
 
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -14,8 +15,8 @@ class Settings(BaseSettings):
     # Path to the database directory (can be on faster storage like SD card)
     db_path_dir: str = "/data"
 
-    # API key for authentication — change this!
-    api_key: str = "a1b2c3d4"
+    # API key for authentication — required, set via POC_API_KEY
+    api_key: str = ""
 
     # Server settings
     host: str = "0.0.0.0"
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
 
     # Phase 2: session TTL in days
     session_ttl_days: int = 7
+
+    # Set to true when the server is behind HTTPS (sets Secure flag on session cookie)
+    session_cookie_secure: bool = False
 
     # Phase 3: Thumbnails
     thumb_width: int = 320
@@ -49,10 +53,26 @@ class Settings(BaseSettings):
 
     # Phase 5.2: S3-compatible API
     s3_access_key: str = "pythowncloud"               # AWS access key ID
-    s3_secret_key: str = ""                           # AWS secret access key (must be set!)
+    s3_secret_key: str = ""                           # AWS secret access key (required)
     s3_region: str = "us-east-1"                      # AWS region (arbitrary, must match client)
 
     model_config = {"env_prefix": "POC_", "env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _require_secrets(self) -> "Settings":
+        missing = []
+        if not self.api_key:
+            missing.append("POC_API_KEY")
+        if not self.login_password_hash:
+            missing.append("POC_LOGIN_PASSWORD_HASH")
+        if not self.s3_secret_key:
+            missing.append("POC_S3_SECRET_KEY")
+        if missing:
+            raise ValueError(
+                f"Required environment variables not set: {', '.join(missing)}. "
+                "Copy .env.example to .env and fill in real values before starting the server."
+            )
+        return self
 
     @property
     def db_path(self) -> Path:

@@ -64,11 +64,11 @@
             </span>
           {% endif %}
           {% if item.extension in ('jpg','jpeg','png','gif','webp','heic','bmp','tiff') %}
-            <a href="#" onclick="openLightbox('{{ item.path }}', '{{ item.filename }}', event)">{{ item.filename }}</a>
+            <a href="#" onclick="openLightbox({{ item.path|tojson }}, {{ item.filename|tojson }}, event)">{{ item.filename }}</a>
           {% elif item.extension in ('mp3','flac','aac','ogg') %}
-            <a href="#" onclick="openAudioPlayer('{{ item.path }}', '{{ item.filename }}', event)">{{ item.filename }}</a>
+            <a href="#" onclick="openAudioPlayer({{ item.path|tojson }}, {{ item.filename|tojson }}, event)">{{ item.filename }}</a>
           {% elif item.extension in ('mp4','mov','webm') %}
-            <a href="#" onclick="openVideoPlayer('{{ item.path }}', '{{ item.filename }}', event)">{{ item.filename }}</a>
+            <a href="#" onclick="openVideoPlayer({{ item.path|tojson }}, {{ item.filename|tojson }}, event)">{{ item.filename }}</a>
           {% elif item.extension == 'mkv' %}
             <a href="/files/{{ item.path }}" download>{{ item.filename }}</a>
           {% else %}
@@ -245,11 +245,20 @@
       fileRow = document.createElement('div');
       fileRow.className = 'progress-item';
       fileRow.dataset.filename = filename;
-      fileRow.innerHTML = `
-        <span class="progress-name">${filename}</span>
-        <div class="progress-bar"><div class="progress-fill"></div></div>
-        <span class="progress-percent">0%</span>
-      `;
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'progress-name';
+      nameSpan.textContent = filename;
+      const barDiv = document.createElement('div');
+      barDiv.className = 'progress-bar';
+      const fillDiv = document.createElement('div');
+      fillDiv.className = 'progress-fill';
+      barDiv.appendChild(fillDiv);
+      const pctSpan = document.createElement('span');
+      pctSpan.className = 'progress-percent';
+      pctSpan.textContent = '0%';
+      fileRow.appendChild(nameSpan);
+      fileRow.appendChild(barDiv);
+      fileRow.appendChild(pctSpan);
       uploadProgressDiv.appendChild(fileRow);
     }
     fileRow.querySelector('.progress-fill').style.width = percent + '%';
@@ -540,7 +549,11 @@
         const level = (dirPath.match(/\//g) || []).length;
         item.style.paddingLeft = (level + 1) * 1.5 + 'rem';
         const label = dirPath.split('/').pop();
-        item.innerHTML = `<span class="move-tree-label" onclick="selectMoveDestination('${dirPath}')">📁 ${label}</span>`;
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'move-tree-label';
+        labelSpan.textContent = '📁 ' + label;
+        labelSpan.addEventListener('click', () => selectMoveDestination(dirPath));
+        item.appendChild(labelSpan);
         treeDiv.appendChild(item);
       });
 

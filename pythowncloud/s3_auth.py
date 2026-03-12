@@ -113,13 +113,12 @@ async def verify_s3_auth(request: Request) -> str:
     Supports both Authorization header auth and pre-signed URL query auth.
     Returns the access key if valid, raises 403 otherwise.
     """
-    logger.info(
-        "S3 auth check: %s %s | Authorization=%s | x-amz-date=%s | query=%s",
+    logger.debug(
+        "S3 auth check: %s %s | auth-present=%s | x-amz-date=%s",
         request.method,
         request.url.path,
-        request.headers.get("Authorization", "(none)")[:60],
+        bool(request.headers.get("Authorization")),
         request.headers.get("x-amz-date", "(none)"),
-        str(request.url.query)[:200] or "(none)",
     )
 
     qs_params = dict(_parse_raw_query(request.url.query))
@@ -220,10 +219,8 @@ async def verify_s3_auth(request: Request) -> str:
 
     if not hmac.compare_digest(computed_signature, provided_signature):
         logger.warning(
-            "Signature mismatch for key %s (presigned=%s): expected %s, got %s. "
-            "Path=%s, QS=%s, Headers=%s, PayloadHash=%s",
-            access_key, is_presigned, computed_signature, provided_signature,
-            path, query_string[:100], headers_to_sign, payload_hash,
+            "S3 signature mismatch for key %s (presigned=%s) — %s %s",
+            access_key, is_presigned, request.method, path,
         )
         raise HTTPException(status_code=403, detail="SignatureDoesNotMatch")
 

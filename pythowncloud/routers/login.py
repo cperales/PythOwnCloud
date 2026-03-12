@@ -51,6 +51,7 @@ async def login(request: Request, password: str = Form(...)):
         value=token,
         httponly=True,
         samesite="lax",
+        secure=settings.session_cookie_secure,
         max_age=settings.session_ttl_days * 86400,
     )
     return redirect

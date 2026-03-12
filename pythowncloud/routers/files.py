@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.requests import ClientDisconnect
 
+from pythowncloud.config import settings
 from pythowncloud.auth import verify_api_key_or_session
 from pythowncloud.models import DirectoryListing, FileInfo, MoveRequest, UploadResponse
 from pythowncloud.helpers import get_storage, safe_path, file_info
@@ -93,10 +94,13 @@ async def upload_file(
     try:
         with open(target, "wb") as f:
             async for chunk in request.stream():
+                size += len(chunk)
+                if size > settings.max_upload_bytes:
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="File exceeds maximum upload size")
                 f.write(chunk)
                 h.update(chunk)
                 m.update(chunk)
-                size += len(chunk)
     except ClientDisconnect:
         logger.warning("Client disconnected during upload of %s", file_path)
         target.unlink(missing_ok=True)

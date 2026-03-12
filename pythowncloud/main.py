@@ -47,16 +47,17 @@ class S3RequestLoggingMiddleware(BaseHTTPMiddleware):
         has_presigned = "X-Amz-Signature" in request.url.query
 
         if has_s3_header_auth or has_presigned:
+            # Log only non-sensitive amz headers (exclude credential/signature values)
+            _SENSITIVE = {"x-amz-security-token"}
             amz_headers = {
                 k: v for k, v in request.headers.items()
-                if k.lower().startswith("x-amz-")
+                if k.lower().startswith("x-amz-") and k.lower() not in _SENSITIVE
             }
             s3_logger.info(
-                "S3 incoming: %s %s | auth=%s | query=%s | amz=%s",
+                "S3 incoming: %s %s | auth=%s | amz=%s",
                 request.method,
                 request.url.path,
                 "presigned" if has_presigned else "header",
-                str(request.url.query)[:300] or "(none)",
                 amz_headers,
             )
 

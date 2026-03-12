@@ -133,10 +133,17 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
         try:
             with open(target, "wb") as f:
                 async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > settings.max_upload_bytes:
+                        target.unlink(missing_ok=True)
+                        return Response(
+                            content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size", key=key),
+                            media_type="application/xml",
+                            status_code=400,
+                        )
                     f.write(chunk)
                     h_sha256.update(chunk)
                     h_md5.update(chunk)
-                    size += len(chunk)
         except ClientDisconnect:
             target.unlink(missing_ok=True)
             logger.warning("Client disconnected during S3 PUT for %s", key)
@@ -492,9 +499,16 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
         try:
             with open(part_file, "wb") as f:
                 async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > settings.max_upload_bytes:
+                        part_file.unlink(missing_ok=True)
+                        return Response(
+                            content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size"),
+                            media_type="application/xml",
+                            status_code=400,
+                        )
                     f.write(chunk)
                     h_md5.update(chunk)
-                    size += len(chunk)
         except ClientDisconnect:
             part_file.unlink(missing_ok=True)
             logger.warning("Client disconnected during S3 part upload for %s", upload_id)
