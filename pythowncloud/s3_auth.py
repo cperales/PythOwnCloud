@@ -113,6 +113,15 @@ async def verify_s3_auth(request: Request) -> str:
     Supports both Authorization header auth and pre-signed URL query auth.
     Returns the access key if valid, raises 403 otherwise.
     """
+    logger.info(
+        "S3 auth check: %s %s | Authorization=%s | x-amz-date=%s | query=%s",
+        request.method,
+        request.url.path,
+        request.headers.get("Authorization", "(none)")[:60],
+        request.headers.get("x-amz-date", "(none)"),
+        str(request.url.query)[:200] or "(none)",
+    )
+
     qs_params = dict(_parse_raw_query(request.url.query))
     is_presigned = "X-Amz-Signature" in qs_params
 
