@@ -10,6 +10,9 @@ Implements AWS Signature V4 auth and a subset of S3 operations:
 import hashlib
 import json
 import logging
+import os
+import shutil
+import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -29,6 +32,7 @@ from pythowncloud.s3_auth import verify_s3_auth
 from pythowncloud.s3_xml import (
     build_abort_multipart,
     build_complete_multipart,
+    build_copy_object,
     build_error,
     build_initiate_multipart,
     build_list_buckets,
@@ -86,6 +90,10 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
     - PUT with partNumber + uploadId: multipart part upload
     - PUT with trailing slash: create empty directory
     """
+    # CopyObject (x-amz-copy-source header present)
+    if request.headers.get("x-amz-copy-source"):
+        return await _copy_object(key, request)
+
     # Check for multipart parameters
     part_number_str = request.query_params.get("partNumber")
     upload_id = request.query_params.get("uploadId")
@@ -189,6 +197,76 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
             media_type="application/xml",
             status_code=500,
         )
+
+
+async def _copy_object(dst_key: str, request: Request) -> Response:
+    """Handle CopyObject: PUT with x-amz-copy-source header."""
+    copy_source = urllib.parse.unquote(request.headers["x-amz-copy-source"])
+    src_key = copy_source.lstrip("/")
+    if src_key.startswith("storage/"):
+        src_key = src_key[len("storage/"):]
+
+    src = safe_path(src_key)
+    dst = safe_path(dst_key)
+
+    if not src.exists():
+        return Response(
+            content=build_error("NoSuchKey", "The source key does not exist", src_key),
+            status_code=404,
+            media_type="application/xml",
+        )
+
+    same_file = src.resolve() == dst.resolve()
+    if not same_file:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dst))
+
+    mtime_raw = request.headers.get("x-amz-meta-mtime")
+    if mtime_raw:
+        mtime = datetime.fromtimestamp(float(mtime_raw), tz=timezone.utc)
+        mtime_ts = mtime.timestamp()
+        os.utime(dst, (mtime_ts, mtime_ts))
+    else:
+        mtime = datetime.fromtimestamp(dst.stat().st_mtime, tz=timezone.utc)
+
+    if same_file:
+        row = await db.get_file_row(str(dst.relative_to(get_storage())))
+        md5 = row["md5"] if row and row.get("md5") else hashlib.md5(dst.read_bytes()).hexdigest()
+        checksum = row.get("checksum", "") if row else ""
+    else:
+        h_sha256 = hashlib.sha256()
+        h_md5 = hashlib.md5()
+        with open(dst, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h_sha256.update(chunk)
+                h_md5.update(chunk)
+        md5 = h_md5.hexdigest()
+        checksum = h_sha256.hexdigest()
+
+    if db.get_pool() is not None:
+        rel = str(dst.relative_to(get_storage()))
+        await db.upsert_file(
+            path=rel,
+            filename=dst.name,
+            extension=dst.suffix.lstrip(".").lower(),
+            size=dst.stat().st_size,
+            checksum=checksum,
+            is_dir=False,
+            modified_at=mtime,
+            md5=md5,
+        )
+        invalidate_listing_cache(rel)
+
+    logger.info(
+        "S3 CopyObject [%02d:%02d:%02d]: %s -> %s (mtime=%s)",
+        mtime.hour, mtime.minute, mtime.second, src_key, dst_key, mtime_raw,
+    )
+
+    return Response(
+        content=build_copy_object(md5, mtime),
+        status_code=200,
+        media_type="application/xml",
+    )
 
 
 @router.get("/storage/{key:path}")

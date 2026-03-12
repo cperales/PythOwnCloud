@@ -158,3 +158,14 @@ def build_list_parts(bucket: str, key: str, upload_id: str, parts: list) -> str:
 def build_abort_multipart() -> str:
     """Build empty response for AbortMultipartUpload (204 No Content returns no body)."""
     return ""
+
+
+def build_copy_object(etag: str, last_modified: datetime) -> str:
+    """Build CopyObject XML response."""
+    root = ET.Element("CopyObjectResult")
+    root.set("xmlns", "http://s3.amazonaws.com/doc/2006-03-01/")
+
+    ET.SubElement(root, "LastModified").text = _format_iso8601(last_modified)
+    ET.SubElement(root, "ETag").text = f'"{etag}"'
+
+    return ET.tostring(root, encoding="unicode")
