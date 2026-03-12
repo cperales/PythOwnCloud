@@ -2,6 +2,14 @@
 
 Lightweight self-hosted cloud storage API, built for Raspberry Pi.
 
+After bringing my old Pi3 back to life, I decided to clear out the files I have on Google Drive and save them to local external drives. I've been working quite a bit with [Nextcloud](https://nextcloud.com/), trying to optimize it for a Raspberry Pi 3 (1GB of RAM, a 32-bit OS). I did it, but sometimes it crashes.
+
+So I decided to build my own server in Python. This project is about building a file server that allows me to:
+
+- Save any type of file and browse from any device (including a web browser).
+- Periodically upload photos and videos from my mobile phone.
+- View photos and videos from my computers (Windows and Linux).
+
 ## Quick Start
 
 ```bash
@@ -29,10 +37,10 @@ curl -s http://localhost:8000/health
 Three authentication methods are supported:
 
 | Method | Used by | Header / Mechanism |
-| --- | --- | --- |
+| ------ | ------- | --- |
 | API Key | REST API (curl, scripts) | `X-API-Key: <key>` |
 | Session Cookie | Web UI | Login form, 7-day cookie |
-| HTTP Basic Auth | WebDAV, TUS | Username: anything, Password: your login password |
+| HTTP Basic Auth | WebDAV | Username: anything, Password: your login password |
 
 ## Web UI
 
@@ -156,17 +164,41 @@ curl -s -H "X-API-Key: $KEY" "http://localhost:8000/api/search?q=sunset&extensio
 curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 ```
 
-## TUS Resumable Uploads
+## S3-Compatible API
 
-Large file uploads with resume support (TUS v1.0.0) at `/tus/`. Useful for unreliable connections or files over 1 GB.
+AWS S3-compatible API at `/s3/` for programmatic access and rclone integration. Supports:
 
-```bash
-# Example with tus-client or any TUS-compatible client
-# Max upload size: 10 GB
-# Abandoned uploads are cleaned up automatically after 24 hours
+- Single-object operations: GET, PUT, HEAD, DELETE
+- Bucket operations: ListBuckets, HeadBucket, ListObjectsV2
+- Multipart uploads: InitiateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts
+- Streaming uploads with MD5 validation
+- Atomic directory creation (trailing-slash PUT)
+
+Authentication uses AWS Signature V4 (UNSIGNED-PAYLOAD mode for HTTP requests).
+
+### rclone S3 example
+
+```ini
+[poc-s3]
+type = s3
+provider = Other
+access_key_id = pythowncloud
+secret_access_key = <your-s3-secret-key>
+endpoint = http://<your-tailscale-ip>:8000/s3/
+region = us-east-1
 ```
 
-HTTP Basic Auth is required (same password as web UI login).
+```bash
+rclone copy ./photos poc-s3:photos/2025/
+```
+
+Configuration via environment variables:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `POC_S3_ACCESS_KEY` | AWS access key ID | `pythowncloud` |
+| `POC_S3_SECRET_KEY` | AWS secret access key | required |
+| `POC_S3_REGION` | AWS region (arbitrary but must match client) | `us-east-1` |
 
 ## Configuration
 
@@ -184,6 +216,9 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `POC_THUMB_BURST_THRESHOLD` | Uploads in window to trigger deferral | `5` |
 | `POC_THUMB_BURST_COOLDOWN_SECONDS` | Idle time before resuming thumbnail generation | `60` |
 | `POC_THUMB_AUTO_SCAN_AFTER_BURST` | Trigger scan after bulk upload completes | `true` |
+| `POC_S3_ACCESS_KEY` | S3 API access key ID | `pythowncloud` |
+| `POC_S3_SECRET_KEY` | S3 API secret access key | required |
+| `POC_S3_REGION` | S3 region (arbitrary but must match client) | `us-east-1` |
 
 ### Separate database storage
 
@@ -198,7 +233,7 @@ POC_DB_PATH_DIR=/home/pi/poc-db
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Client (curl / WebDAV / browser / TUS client)           │
+│  Client (curl / WebDAV / browser / rclone / S3 client)   │
 │                    │                                     │
 │              Tailscale VPN                               │
 │                    │                                     │
@@ -207,7 +242,7 @@ POC_DB_PATH_DIR=/home/pi/poc-db
 │    │     FastAPI + uvicorn           │                   │
 │    │     REST API  /files/           │                   │
 │    │     WebDAV    /dav/ (and /)     │                   │
-│    │     TUS       /tus/             │                   │
+│    │     S3        /s3/              │                   │
 │    │     SQLite + LRU cache          │                   │
 │    │     ffmpeg (thumbnails)         │                   │
 │    │     ~30-50 MB RAM               │                   │
@@ -237,5 +272,5 @@ Tunable via `POC_THUMB_BURST_*` environment variables.
 - **Phase 2** ✅ SQLite metadata tracking, web file browser with login
 - **Phase 3** ✅ Thumbnail generation (ffmpeg), LRU cache for listings
 - **Phase 4** ✅ UI polish: image lightbox, media playback, drag-upload, file move
-- **Phase 5** ✅ WebDAV server, TUS resumable uploads, deferred thumbnail generation during bulk uploads
+- **Phase 5** ✅ WebDAV server, S3-compatible API with multipart uploads, deferred thumbnail generation during bulk uploads
 - **Phase 6** — Mobile photo auto-upload client, desktop sync agent
