@@ -18,16 +18,18 @@ import pythowncloud.thumbnails as thumbnails
 logger = logging.getLogger(__name__)
 
 
-def _checksum_sync(filepath: Path) -> str:
+def _checksum_sync(filepath: Path) -> tuple[str, str]:
     h = hashlib.sha256()
+    m = hashlib.md5()
     with open(filepath, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
-    return h.hexdigest()
+            m.update(chunk)
+    return h.hexdigest(), m.hexdigest()
 
 
-async def _compute_checksum(filepath: Path) -> str:
-    """Compute SHA-256 in a thread pool to avoid blocking the event loop."""
+async def _compute_checksum(filepath: Path) -> tuple[str, str]:
+    """Compute SHA-256 and MD5 in a thread pool to avoid blocking the event loop."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _checksum_sync, filepath)
 
@@ -71,8 +73,9 @@ async def run_scan() -> dict:
             if needs_update:
                 if fspath.is_dir():
                     checksum = ""
+                    md5_val = ""
                 else:
-                    checksum = await _compute_checksum(fspath)
+                    checksum, md5_val = await _compute_checksum(fspath)
                 ext = fspath.suffix.lstrip(".").lower() or None
                 await db.upsert_file(
                     path=rel_path,
@@ -82,6 +85,7 @@ async def run_scan() -> dict:
                     checksum=checksum,
                     is_dir=fspath.is_dir(),
                     modified_at=mtime,
+                    md5=md5_val,
                 )
                 updated += 1
 

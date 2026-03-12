@@ -95,6 +95,14 @@ async def init_schema() -> None:
     await _conn.commit()
     logger.info("DB schema initialised")
 
+    # Migrate: add md5 column if it doesn't exist
+    try:
+        await _conn.execute("ALTER TABLE files ADD COLUMN md5 TEXT DEFAULT ''")
+        await _conn.commit()
+        logger.info("Added md5 column to files table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
 
 # ─── File queries ────────────────────────────────────────────────────────────
 
@@ -107,6 +115,7 @@ async def upsert_file(
     checksum: str,
     is_dir: bool,
     modified_at: datetime,
+    md5: str = "",
 ) -> None:
     """Upsert a file record. INSERT ... ON CONFLICT DO UPDATE."""
     if _conn is None:
@@ -115,8 +124,8 @@ async def upsert_file(
     modified_str = modified_at.isoformat()
     await _conn.execute(
         """
-        INSERT INTO files (path, filename, extension, size, checksum, is_dir, modified_at, scanned_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        INSERT INTO files (path, filename, extension, size, checksum, is_dir, modified_at, scanned_at, md5)
+        VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?)
         ON CONFLICT (path) DO UPDATE
             SET filename    = excluded.filename,
                 extension   = excluded.extension,
@@ -124,9 +133,10 @@ async def upsert_file(
                 checksum    = excluded.checksum,
                 is_dir      = excluded.is_dir,
                 modified_at = excluded.modified_at,
-                scanned_at  = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                scanned_at  = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                md5         = excluded.md5
         """,
-        (path, filename, extension, size, checksum, int(is_dir), modified_str),
+        (path, filename, extension, size, checksum, int(is_dir), modified_str, md5),
     )
     await _conn.commit()
 
@@ -183,6 +193,38 @@ async def list_directory(parent_path: str) -> list[dict[str, Any]]:
             ORDER BY is_dir DESC, filename ASC
         """
         cursor = await _conn.execute(query, (p, p))
+
+    rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def list_all_under(prefix: str) -> list[dict[str, Any]]:
+    """
+    Return all files (recursively) under a prefix, excluding directories.
+    Used for S3 flat listing (no delimiter).
+
+    Returns only files where is_dir = 0, sorted by path.
+    Similar to: SELECT * FROM files WHERE path LIKE 'prefix/%' AND is_dir = 0
+    """
+    if _conn is None:
+        return []
+
+    # Normalize prefix: strip leading/trailing slashes
+    prefix = prefix.strip("/")
+
+    if not prefix:
+        # Empty prefix: return all files (no directories)
+        query = "SELECT * FROM files WHERE is_dir = 0 ORDER BY path ASC"
+        cursor = await _conn.execute(query)
+    else:
+        # Match all files under this prefix
+        query = """
+            SELECT * FROM files
+            WHERE path LIKE ? || '/%'
+              AND is_dir = 0
+            ORDER BY path ASC
+        """
+        cursor = await _conn.execute(query, (prefix,))
 
     rows = await cursor.fetchall()
     return [dict(r) for r in rows]

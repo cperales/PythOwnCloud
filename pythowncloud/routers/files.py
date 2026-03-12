@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from starlette.requests import ClientDisconnect
 
 from pythowncloud.auth import verify_api_key_or_session
 from pythowncloud.models import DirectoryListing, FileInfo, MoveRequest, UploadResponse
@@ -88,11 +89,18 @@ async def upload_file(
     target.parent.mkdir(parents=True, exist_ok=True)
     size = 0
     h = hashlib.sha256()
-    with open(target, "wb") as f:
-        async for chunk in request.stream():
-            f.write(chunk)
-            h.update(chunk)
-            size += len(chunk)
+    m = hashlib.md5()
+    try:
+        with open(target, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+                h.update(chunk)
+                m.update(chunk)
+                size += len(chunk)
+    except ClientDisconnect:
+        logger.warning("Client disconnected during upload of %s", file_path)
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Client disconnected during upload")
     if db.get_pool() is not None:
         try:
             mtime = datetime.fromtimestamp(target.stat().st_mtime, tz=timezone.utc)
@@ -105,6 +113,7 @@ async def upload_file(
                 checksum=h.hexdigest(),
                 is_dir=False,
                 modified_at=mtime,
+                md5=m.hexdigest(),
             )
         except Exception:
             logger.warning("DB upsert failed after upload of %s", file_path, exc_info=True)

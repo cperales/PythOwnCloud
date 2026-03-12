@@ -7,10 +7,14 @@ services:
       - "8000:8000"
     volumes:
       - ${POC_DATA_FOLDER}:/data
+      - ${POC_DB_PATH_DIR}:/db
     environment:
       - POC_API_KEY=${POC_API_KEY}
       - POC_STORAGE_PATH=/data
       - POC_LOGIN_PASSWORD_HASH=${POC_LOGIN_PASSWORD_HASH}
       - POC_SESSION_TTL_DAYS=7
+      - POC_DB_PATH_DIR=/db
+      - POC_S3_ACCESS_KEY=${POC_S3_ACCESS_KEY:-pythowncloud}
+      - POC_S3_SECRET_KEY=${POC_S3_SECRET_KEY}
     mem_limit: 128m
     memswap_limit: 192m

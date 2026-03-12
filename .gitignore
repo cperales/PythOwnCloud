@@ -8,3 +8,5 @@ example_data/
 
 # Files
 .env
+*.db
+*.db-*
