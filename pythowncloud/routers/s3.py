@@ -146,6 +146,7 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                     checksum=h_sha256.hexdigest(),
                     is_dir=False,
                     modified_at=mtime,
+                    md5=h_md5.hexdigest(),
                 )
             except Exception:
                 logger.warning("DB upsert failed for S3 PUT %s", key, exc_info=True)
@@ -189,9 +190,21 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
 
 
 @router.get("/storage/{key:path}")
-async def get_object(key: str, _auth: str = Depends(verify_s3_auth)):
-    """GET /s3/storage/{key} — Download a file."""
+async def get_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
+    """
+    GET /s3/storage/{key} — Download a file or list parts.
+    GET /s3/storage/{key}?uploadId=X — ListParts for multipart upload.
+    """
     try:
+        # Check for multipart list-parts first
+        upload_id = request.query_params.get("uploadId")
+        if upload_id:
+            return await _list_parts(key, upload_id)
+
+        # Check if this is bucket listing (no key or empty key)
+        if not key or key == "":
+            return await _list_objects_v2(request)
+
         target = safe_path(key)
         if not target.exists():
             return Response(
@@ -335,27 +348,6 @@ async def post_object(key: str, request: Request, _auth: str = Depends(verify_s3
         )
 
 
-@router.get("/storage/{key:path}")
-async def get_or_list_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
-    """
-    GET /s3/storage — ListObjectsV2 (bucket listing).
-    GET /s3/storage/{key} — GetObject (handled by earlier route).
-    GET /s3/storage/{key}?uploadId=X — ListParts.
-    """
-    # Check for multipart list-parts
-    upload_id = request.query_params.get("uploadId")
-    if upload_id:
-        return await _list_parts(key, upload_id)
-
-    # Check if this is bucket listing (no key or trailing slash)
-    if not key or key == "":
-        return await _list_objects_v2(request)
-
-    # Otherwise, delegated to get_object (earlier @router.get handler takes precedence)
-    # This shouldn't be reached due to route ordering
-    return Response(status_code=404)
-
-
 # ─── Multipart Helper Functions ────────────────────────────────────────────
 
 async def _initiate_multipart(key: str) -> Response:
@@ -475,10 +467,20 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         try:
             root = ET.fromstring(body)
             parts_from_request = {}
-            for part_elem in root.findall(".//{http://s3.amazonaws.com/doc/2006-03-01/}Part"):
-                part_number = int(part_elem.findtext("PartNumber"))
-                etag = part_elem.findtext("ETag")
-                parts_from_request[part_number] = etag
+
+            # Try with S3 namespace first, then fallback to no namespace
+            NS = "{http://s3.amazonaws.com/doc/2006-03-01/}"
+            parts_elems = root.findall(f".//{NS}Part")
+            if not parts_elems:
+                parts_elems = root.findall(".//Part")
+
+            for part_elem in parts_elems:
+                # Try namespace-qualified first, then fallback
+                pn_text = part_elem.findtext(f"{NS}PartNumber") or part_elem.findtext("PartNumber")
+                etag_text = part_elem.findtext(f"{NS}ETag") or part_elem.findtext("ETag")
+                if pn_text and etag_text:
+                    part_number = int(pn_text)
+                    parts_from_request[part_number] = etag_text
         except Exception as e:
             logger.warning("Failed to parse CompleteMultipartUpload XML: %s", e)
             return Response(
@@ -552,6 +554,10 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                 status_code=500,
             )
 
+        # Build ETag for multipart response and storage
+        # For multipart uploads, ETag is "md5-of-part-md5s-partcount"
+        multipart_etag = f"{h_md5_combined.hexdigest()}-{len(parts_from_request)}"
+
         # Upsert to DB
         if db.get_pool() is not None:
             try:
@@ -566,6 +572,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     checksum=h_sha256.hexdigest(),
                     is_dir=False,
                     modified_at=mtime,
+                    md5=multipart_etag,
                 )
             except Exception:
                 logger.warning("DB upsert failed after S3 multipart completion of %s", key, exc_info=True)
@@ -593,10 +600,8 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
             part_file.unlink(missing_ok=True)
         meta_file.unlink(missing_ok=True)
 
-        # Build ETag for multipart response
-        # For multipart uploads, ETag is "md5-of-part-md5s-partcount"
-        # Simplified: just use combined MD5 with part count
-        etag = f'"{h_md5_combined.hexdigest()}-{len(parts_from_request)}"'
+        # Format ETag for response (add quotes)
+        etag = f'"{multipart_etag}"'
 
         logger.info(f"Completed multipart upload {upload_id} to {key}")
 
@@ -686,23 +691,21 @@ async def _list_parts(key: str, upload_id: str) -> Response:
 async def _list_objects_v2(request: Request) -> Response:
     """GET /s3/storage?list-type=2[&prefix=...&delimiter=...] — list objects."""
     try:
-        prefix = request.query_params.get("prefix", "")
+        raw_prefix = request.query_params.get("prefix", "")
         delimiter = request.query_params.get("delimiter", "/")
         max_keys = int(request.query_params.get("max-keys", "1000"))
 
-        # Normalize prefix
-        prefix = prefix.lstrip("/").rstrip("/")
+        # Separate raw prefix (for XML response) from normalized prefix (for DB queries)
+        prefix_for_db = raw_prefix.lstrip("/").rstrip("/")
 
         # Get listing from DB
         if not delimiter:
             # Flat listing (no delimiter): recursively list all files under prefix
-            objects = await db.list_all_under(prefix) if prefix else await db.list_all_under("")
+            objects = await db.list_all_under(prefix_for_db) if prefix_for_db else await db.list_all_under("")
         else:
             # Delimited listing: only direct children
-            if prefix:
-                # Remove trailing slash for DB query
-                prefix_normalized = prefix.rstrip("/")
-                items = await db.list_directory(prefix_normalized)
+            if prefix_for_db:
+                items = await db.list_directory(prefix_for_db)
             else:
                 items = await db.list_directory("")
 
@@ -739,7 +742,7 @@ async def _list_objects_v2(request: Request) -> Response:
         return Response(
             content=build_list_objects_v2(
                 bucket="storage",
-                prefix=prefix if prefix else "",
+                prefix=raw_prefix if raw_prefix else "",
                 delimiter=delimiter if delimiter else None,
                 objects=objects,
                 common_prefixes=common_prefixes,

@@ -89,11 +89,13 @@ async def upload_file(
     target.parent.mkdir(parents=True, exist_ok=True)
     size = 0
     h = hashlib.sha256()
+    m = hashlib.md5()
     try:
         with open(target, "wb") as f:
             async for chunk in request.stream():
                 f.write(chunk)
                 h.update(chunk)
+                m.update(chunk)
                 size += len(chunk)
     except ClientDisconnect:
         logger.warning("Client disconnected during upload of %s", file_path)
@@ -111,6 +113,7 @@ async def upload_file(
                 checksum=h.hexdigest(),
                 is_dir=False,
                 modified_at=mtime,
+                md5=m.hexdigest(),
             )
         except Exception:
             logger.warning("DB upsert failed after upload of %s", file_path, exc_info=True)

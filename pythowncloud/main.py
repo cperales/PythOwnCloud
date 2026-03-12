@@ -13,7 +13,7 @@ from starlette.requests import Request
 
 import pythowncloud.db as db
 from pythowncloud.config import settings
-from pythowncloud.routers import login, files, dirs, browse, search, webdav, tus, s3
+from pythowncloud.routers import login, files, dirs, browse, search, webdav, s3
 from pythowncloud.uploads import cleanup_abandoned_uploads
 from pythowncloud.scanner import run_scan
 
@@ -45,10 +45,10 @@ async def lifespan(app: FastAPI):
         logger.info("Fresh database detected — triggering initial scan")
         asyncio.create_task(run_scan())
 
-    # Ensure TUS upload directory exists
+    # Ensure upload directory exists
     settings.tus_upload_path.mkdir(parents=True, exist_ok=True)
 
-    # Schedule TUS cleanup as a background task
+    # Schedule cleanup of abandoned uploads as a background task
     asyncio.create_task(cleanup_abandoned_uploads())
 
     yield
@@ -74,7 +74,4 @@ app.include_router(dirs.router)
 app.include_router(browse.router)
 app.include_router(search.router)
 app.include_router(webdav.router)
-app.include_router(webdav.router, prefix="")  # Also serve WebDAV at root for clients that don't support path prefixes
-app.include_router(tus.router)
 app.include_router(s3.router, prefix="/s3")  # S3-compatible API at /s3
-app.include_router(s3.router, prefix="")  # Also serve S3 at root for clients like S3Drive

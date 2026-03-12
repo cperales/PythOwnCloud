@@ -76,9 +76,9 @@ def build_list_objects_v2(
         contents = ET.SubElement(root, "Contents")
         ET.SubElement(contents, "Key").text = obj["path"]
         ET.SubElement(contents, "LastModified").text = _format_iso8601(obj["modified_at"])
-        # For S3 compatibility, single-part upload ETag is the MD5 in quotes
-        # We store SHA256 in the DB, so use it as-is (wrapped in quotes)
-        ET.SubElement(contents, "ETag").text = f'"{obj["checksum"][:16]}"'  # truncate for demo
+        # Use md5 field for ETag if available, fallback to truncated checksum
+        etag = obj.get("md5", "") or obj["checksum"][:16]
+        ET.SubElement(contents, "ETag").text = f'"{etag}"'
         ET.SubElement(contents, "Size").text = str(obj["size"])
         ET.SubElement(contents, "StorageClass").text = "STANDARD"
 

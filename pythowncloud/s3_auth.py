@@ -8,7 +8,7 @@ Uses only stdlib: hmac, hashlib, urllib.parse.
 import hashlib
 import hmac
 import logging
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 
 from fastapi import Request
 from fastapi.exceptions import HTTPException
@@ -16,6 +16,21 @@ from fastapi.exceptions import HTTPException
 from pythowncloud.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _canonical_uri(path: str) -> str:
+    """
+    Normalize path for Signature V4: URI-encode each segment according to RFC 3986.
+    Per AWS spec, unreserved characters (A-Z a-z 0-9 - _ . ~) are not encoded.
+    """
+    if not path:
+        return "/"
+    # Split by /, encode each segment, then rejoin
+    segments = path.split("/")
+    encoded = "/".join(quote(seg, safe="") for seg in segments)
+    if not encoded.startswith("/"):
+        encoded = "/" + encoded
+    return encoded
 
 
 def _sign_key(secret_key: str, date_stamp: str, region_name: str, service_name: str) -> bytes:
@@ -52,10 +67,8 @@ def _canonical_request(
       SignedHeaders + '\n' +
       HashedPayload
     """
-    # Normalize path: remove double slashes, ensure starts with /
-    if not path.startswith("/"):
-        path = "/" + path
-    path = "/".join(p for p in path.split("/") if p or path.startswith("/"))
+    # Normalize path using AWS Signature V4 spec
+    path = _canonical_uri(path)
 
     # Canonical headers: sorted, lowercase names, trimmed values, each on own line + newline
     canonical_headers_list = []
