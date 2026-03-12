@@ -130,3 +130,4 @@ app.include_router(browse.router)
 app.include_router(search.router)
 app.include_router(webdav.router)
 app.include_router(s3.router, prefix="/s3")  # S3-compatible API at /s3
+app.include_router(s3.router)  # Also mount at root so endpoint URL needs no /s3 suffix
