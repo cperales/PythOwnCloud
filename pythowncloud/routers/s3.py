@@ -95,6 +95,8 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
         return await _upload_part(key, upload_id, int(part_number_str), request)
 
     # Simple PUT: single-file upload
+    now = datetime.now(timezone.utc)
+    logger.info("S3 PUT received [%02d:%02d:%02d]: key=%s, content-length=%s", now.hour, now.minute, now.second, key, request.headers.get("content-length"))
     try:
         target = safe_path(key)
 
