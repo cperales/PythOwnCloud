@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app code
 COPY pythowncloud/ ./pythowncloud/
-COPY main.py .
+COPY entrypoint.py .
 
 # Create default data dir
 RUN mkdir -p /data
