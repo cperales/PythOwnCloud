@@ -7,6 +7,7 @@ Implements AWS Signature V4 auth and a subset of S3 operations:
 - Multipart upload: CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -43,6 +44,9 @@ from pythowncloud.s3_xml import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Per-upload locks to prevent race conditions on concurrent part uploads
+_upload_locks: dict[str, asyncio.Lock] = {}
 
 
 # ─── List Buckets ──────────────────────────────────────────────────────────
@@ -487,10 +491,6 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
                 status_code=404,
             )
 
-        # Read metadata
-        with open(meta_file) as f:
-            meta = json.load(f)
-
         # Stream part body and compute MD5
         part_file = uploads_dir / f"{upload_id}.part.{part_number}"
         size = 0
@@ -514,15 +514,20 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
             logger.warning("Client disconnected during S3 part upload for %s", upload_id)
             return Response(status_code=400)
 
-        # Record part info in metadata
+        # Record part info in metadata — use a per-upload lock to prevent
+        # concurrent UploadPart requests from overwriting each other's writes
         etag = f'"{h_md5.hexdigest()}"'
-        meta["parts"][str(part_number)] = {
-            "size": size,
-            "etag": etag,
-        }
-
-        with open(meta_file, "w") as f:
-            json.dump(meta, f)
+        if upload_id not in _upload_locks:
+            _upload_locks[upload_id] = asyncio.Lock()
+        async with _upload_locks[upload_id]:
+            with open(meta_file) as f:
+                meta = json.load(f)
+            meta["parts"][str(part_number)] = {
+                "size": size,
+                "etag": etag,
+            }
+            with open(meta_file, "w") as f:
+                json.dump(meta, f)
 
         logger.info(f"Uploaded part {part_number} for {upload_id} ({size} bytes)")
 
@@ -558,6 +563,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
 
         # Parse CompleteMultipartUpload XML from request body
         body = await request.body()
+        logger.warning("CompleteMultipartUpload body (%d bytes): %r", len(body), body[:500] if body else b"")
         try:
             root = ET.fromstring(body)
             parts_from_request = {}
@@ -567,6 +573,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
             parts_elems = root.findall(f".//{NS}Part")
             if not parts_elems:
                 parts_elems = root.findall(".//Part")
+
 
             for part_elem in parts_elems:
                 # Try namespace-qualified first, then fallback
@@ -592,7 +599,14 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     media_type="application/xml",
                     status_code=400,
                 )
-            if meta["parts"][part_key]["etag"] != etag:
+            # Normalize ETags by stripping quotes (client may send with or without quotes)
+            stored_etag = meta["parts"][part_key]["etag"].strip('"')
+            client_etag = etag.strip('"')
+            if stored_etag != client_etag:
+                logger.debug(
+                    "ETag mismatch for part %d: stored=%s, client=%s",
+                    part_num, stored_etag, client_etag
+                )
                 return Response(
                     content=build_error("InvalidPartOrder", f"ETag mismatch for part {part_num}"),
                     media_type="application/xml",
@@ -688,11 +702,12 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         except Exception:
             pass
 
-        # Clean up parts and metadata
+        # Clean up parts, metadata, and lock
         for part_num in parts_from_request.keys():
             part_file = uploads_dir / f"{upload_id}.part.{part_num}"
             part_file.unlink(missing_ok=True)
         meta_file.unlink(missing_ok=True)
+        _upload_locks.pop(upload_id, None)
 
         # Format ETag for response (add quotes)
         etag = f'"{multipart_etag}"'
@@ -731,8 +746,9 @@ async def _abort_multipart(key: str, upload_id: str) -> Response:
             part_file = uploads_dir / f"{upload_id}.part.{part_num}"
             part_file.unlink(missing_ok=True)
 
-        # Delete metadata
+        # Delete metadata and lock
         meta_file.unlink(missing_ok=True)
+        _upload_locks.pop(upload_id, None)
 
         logger.info(f"Aborted multipart upload {upload_id}")
 
