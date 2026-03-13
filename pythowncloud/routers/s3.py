@@ -592,7 +592,14 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     media_type="application/xml",
                     status_code=400,
                 )
-            if meta["parts"][part_key]["etag"] != etag:
+            # Normalize ETags by stripping quotes (client may send with or without quotes)
+            stored_etag = meta["parts"][part_key]["etag"].strip('"')
+            client_etag = etag.strip('"')
+            if stored_etag != client_etag:
+                logger.debug(
+                    "ETag mismatch for part %d: stored=%s, client=%s",
+                    part_num, stored_etag, client_etag
+                )
                 return Response(
                     content=build_error("InvalidPartOrder", f"ETag mismatch for part {part_num}"),
                     media_type="application/xml",
