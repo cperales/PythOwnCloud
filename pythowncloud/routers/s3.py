@@ -558,6 +558,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
 
         # Parse CompleteMultipartUpload XML from request body
         body = await request.body()
+        logger.warning("CompleteMultipartUpload body (%d bytes): %r", len(body), body[:500] if body else b"")
         try:
             root = ET.fromstring(body)
             parts_from_request = {}
@@ -568,6 +569,8 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
             if not parts_elems:
                 parts_elems = root.findall(".//Part")
 
+            logger.warning("CompleteMultipartUpload: found %d parts in XML, meta has %s parts", len(parts_elems), list(meta["parts"].keys())[:5])
+
             for part_elem in parts_elems:
                 # Try namespace-qualified first, then fallback
                 pn_text = part_elem.findtext(f"{NS}PartNumber") or part_elem.findtext("PartNumber")
@@ -576,12 +579,14 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     part_number = int(pn_text)
                     parts_from_request[part_number] = etag_text
         except Exception as e:
-            logger.warning("Failed to parse CompleteMultipartUpload XML: %s", e)
+            logger.warning("Failed to parse CompleteMultipartUpload XML: %s | body: %r", e, body[:200] if body else b"")
             return Response(
                 content=build_error("InvalidArgument", "Invalid request body"),
                 media_type="application/xml",
                 status_code=400,
             )
+
+        logger.warning("CompleteMultipartUpload: parsed %d parts from request: %s", len(parts_from_request), sorted(parts_from_request.keys()))
 
         # Verify all parts exist and ETags match
         for part_num, etag in parts_from_request.items():
