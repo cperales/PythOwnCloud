@@ -14,7 +14,8 @@ from starlette.requests import Request
 
 import pythowncloud.db as db
 from pythowncloud.config import settings
-from pythowncloud.routers import login, files, dirs, browse, search, webdav, s3
+from pythowncloud.routers import login, files, dirs, search, webdav, s3
+import pythowncloud.routers.nicegui_ui as gui
 from pythowncloud.s3_xml import build_error
 from pythowncloud.uploads import cleanup_abandoned_uploads
 from pythowncloud.scanner import run_scan
@@ -127,7 +128,6 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(login.router)
 app.include_router(files.router)
 app.include_router(dirs.router)
-app.include_router(browse.router)
 app.include_router(search.router)
 app.include_router(webdav.router)
 app.include_router(s3.router, prefix="/s3")  # S3-compatible API at /s3
