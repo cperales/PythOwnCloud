@@ -5,26 +5,30 @@ This module registers a FastAPI route via the @ui.page decorator. The UI uses se
 
 The implementation is intentionally minimal – it demonstrates how NiceGUI can replace static HTML pages while still leveraging the same backend logic.
 """
+import asyncio
 from fastapi import Depends
 import httpx
+
 from pythowncloud.auth import verify_api_key_or_session
 from nicegui import ui
 from pythowncloud.config import settings
 
 # Helper to fetch JSON from API endpoints using current session or API key
-async def api_get(path: str, auth_token: str | None = None):
+def api_get(path: str, auth_token: str | None = None):
     headers = {}
     if auth_token:
         # Prefer API‑key header; for sessions the cookie will be sent automatically by httpx when client is created with cookies.
         headers["X-API-Key"] = auth_token
     url = f"http://{settings.host}:{settings.port}{path}"
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        resp = await client.get(url, headers=headers)
-    return resp.json()
+    async def _fetch():
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+        return resp.json()
+    # Return coroutine for consistency
+    return _fetch()
 
 # NiceGUI page – mounted at the root of the FastAPI app
-@ui.page("/")
-async def index(_auth: str | None = Depends(verify_api_key_or_session)):
+def index(_auth: str | None = Depends(verify_api_key_or_session)):
     ui.label("PythOwnCloud — NiceGUI UI")
     current_path = ""
 
@@ -60,4 +64,4 @@ async def index(_auth: str | None = Depends(verify_api_key_or_session)):
         on_success=lambda files: asyncio.create_task(refresh()),
     )
 
-    await refresh()
+    return refresh()
