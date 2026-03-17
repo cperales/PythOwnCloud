@@ -46,6 +46,7 @@ def build_list_objects_v2(
     key_count: int,
     max_keys: int = 1000,
     is_truncated: bool = False,
+    next_continuation_token: Optional[str] = None,
 ) -> str:
     """
     Build ListObjectsV2 XML response.
@@ -59,6 +60,7 @@ def build_list_objects_v2(
         key_count: Number of items in Contents + CommonPrefixes
         max_keys: Max keys parameter (default 1000)
         is_truncated: Whether more results are available
+        next_continuation_token: Base64-encoded cursor for next page (if truncated)
     """
     root = ET.Element("ListBucketResult")
     root.set("xmlns", "http://s3.amazonaws.com/doc/2006-03-01/")
@@ -70,6 +72,10 @@ def build_list_objects_v2(
     ET.SubElement(root, "KeyCount").text = str(key_count)
     ET.SubElement(root, "MaxKeys").text = str(max_keys)
     ET.SubElement(root, "IsTruncated").text = "true" if is_truncated else "false"
+
+    # NextContinuationToken: S3Drive (and AWS SDK) require this to advance pagination
+    if is_truncated and next_continuation_token:
+        ET.SubElement(root, "NextContinuationToken").text = next_continuation_token
 
     # Contents: individual files
     for obj in objects:

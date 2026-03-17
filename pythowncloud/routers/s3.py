@@ -8,6 +8,7 @@ Implements AWS Signature V4 auth and a subset of S3 operations:
 """
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -808,10 +809,40 @@ async def _list_objects_v2(request: Request) -> Response:
         # Separate raw prefix (for XML response) from normalized prefix (for DB queries)
         prefix_for_db = raw_prefix.lstrip("/").rstrip("/")
 
+        # Decode keyset cursor from continuation-token query param
+        continuation_tok = request.query_params.get("continuation-token", "")
+        after_key = ""
+        if continuation_tok:
+            try:
+                after_key = base64.urlsafe_b64decode(
+                    continuation_tok.encode() + b"=="   # safe re-padding
+                ).decode()
+            except Exception:
+                after_key = ""
+
         # Get listing from DB
         if not delimiter:
             # Flat listing (no delimiter): recursively list all files under prefix
-            objects = await db.list_all_under(prefix_for_db) if prefix_for_db else await db.list_all_under("")
+            objects = await db.list_all_under(
+                prefix_for_db, after_key=after_key, limit=max_keys + 1
+            ) if prefix_for_db else await db.list_all_under(
+                "", after_key=after_key, limit=max_keys + 1
+            )
+
+            # Check truncation: we fetched max_keys + 1 to detect if more results exist
+            is_truncated = len(objects) > max_keys
+            if is_truncated:
+                objects = objects[:max_keys]
+
+            # Compute next continuation token: base64-encode the last object's path
+            next_token: str | None = None
+            if is_truncated:
+                next_token = base64.urlsafe_b64encode(
+                    objects[-1]["path"].encode()
+                ).decode().rstrip("=")
+
+            key_count = len(objects)
+            common_prefixes = []
         else:
             # Delimited listing: only direct children
             if prefix_for_db:
@@ -834,18 +865,12 @@ async def _list_objects_v2(request: Request) -> Response:
             # Convert to list and sort
             common_prefixes = sorted(list(common_prefixes))
 
-        # Apply max_keys and truncation
-        is_truncated = len(objects) > max_keys
-        if is_truncated:
-            objects = objects[:max_keys]
+            # Apply max_keys and truncation (delimited path does not support pagination yet)
+            is_truncated = len(objects) > max_keys
+            if is_truncated:
+                objects = objects[:max_keys]
 
-        # Determine key_count and common_prefixes for response
-        if not delimiter:
-            # Flat listing: only files, no common prefixes
-            key_count = len(objects)
-            common_prefixes = []
-        else:
-            # Delimited: key_count is files + directory prefixes
+            next_token = None
             key_count = len(objects) + len(common_prefixes)
 
         # Build response
@@ -859,6 +884,7 @@ async def _list_objects_v2(request: Request) -> Response:
                 key_count=key_count,
                 max_keys=max_keys,
                 is_truncated=is_truncated,
+                next_continuation_token=next_token,
             ),
             media_type="application/xml",
             status_code=200,

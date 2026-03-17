@@ -198,13 +198,21 @@ async def list_directory(parent_path: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-async def list_all_under(prefix: str) -> list[dict[str, Any]]:
+async def list_all_under(
+    prefix: str,
+    after_key: str = "",
+    limit: int = 0,
+) -> list[dict[str, Any]]:
     """
-    Return all files (recursively) under a prefix, excluding directories.
-    Used for S3 flat listing (no delimiter).
+    Return files (recursively) under a prefix, excluding directories.
+    Used for S3 flat listing (no delimiter) with keyset pagination support.
+
+    Args:
+        prefix: Directory prefix to search under
+        after_key: Keyset cursor — only return files with path > after_key (for pagination)
+        limit: If > 0, fetch up to limit+1 rows (the extra row detects truncation)
 
     Returns only files where is_dir = 0, sorted by path.
-    Similar to: SELECT * FROM files WHERE path LIKE 'prefix/%' AND is_dir = 0
     """
     if _conn is None:
         return []
@@ -212,20 +220,24 @@ async def list_all_under(prefix: str) -> list[dict[str, Any]]:
     # Normalize prefix: strip leading/trailing slashes
     prefix = prefix.strip("/")
 
-    if not prefix:
-        # Empty prefix: return all files (no directories)
-        query = "SELECT * FROM files WHERE is_dir = 0 ORDER BY path ASC"
-        cursor = await _conn.execute(query)
-    else:
-        # Match all files under this prefix
-        query = """
-            SELECT * FROM files
-            WHERE path LIKE ? || '/%'
-              AND is_dir = 0
-            ORDER BY path ASC
-        """
-        cursor = await _conn.execute(query, (prefix,))
+    conditions = ["is_dir = 0"]
+    params: list[Any] = []
 
+    if prefix:
+        conditions.append("path LIKE ? || '/%'")
+        params.append(prefix)
+
+    if after_key:
+        conditions.append("path > ?")
+        params.append(after_key)
+
+    where = "WHERE " + " AND ".join(conditions)
+    query = f"SELECT * FROM files {where} ORDER BY path ASC"
+
+    if limit > 0:
+        query += f" LIMIT {limit + 1}"  # fetch one extra to cheaply detect truncation
+
+    cursor = await _conn.execute(query, params)
     rows = await cursor.fetchall()
     return [dict(r) for r in rows]
 
