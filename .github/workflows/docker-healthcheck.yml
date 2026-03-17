@@ -14,9 +14,16 @@ jobs:
       run: |
         docker build -t pythowncloud-app -f Dockerfile .
 
-    - name: Run Docker container
-      run: |
-        docker run -d -p 8000:8000 --name pythowncloud-container pythowncloud-app
+- name: Run Docker container
+    run: |
+      docker run -d \
+        -p 8000:8000 \
+        --name pythowncloud-container \
+        -e POC_API_KEY="dummy-api-key" \
+        -e POC_LOGIN_PASSWORD_HASH="dummy-hash" \
+        -e POC_S3_SECRET_KEY="dummy-secret" \
+        pythowncloud-app
+
 
     - name: Wait for container to start
       run: |
@@ -24,7 +31,7 @@ jobs:
         timeout=60
         elapsed=0
         until [ $elapsed -ge $timeout ]; do
-          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+          response=$(docker exec pythowncloud-container curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
           if [ "$response" = "200" ]; then
             echo "Health check passed!"
             exit 0
