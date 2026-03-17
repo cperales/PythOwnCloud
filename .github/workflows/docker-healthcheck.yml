@@ -14,15 +14,17 @@ jobs:
       run: |
         docker build -t pythowncloud-app -f Dockerfile .
 
-- name: Run Docker container
-    run: |
-      docker run -d \
-        -p 8000:8000 \
-        --name pythowncloud-container \
-        -e POC_API_KEY="dummy-api-key" \
-        -e POC_LOGIN_PASSWORD_HASH="dummy-hash" \
-        -e POC_S3_SECRET_KEY="dummy-secret" \
-        pythowncloud-app
+    - name: Run Docker container
+      run: |
+        docker run -d \
+          -p 8000:8000 \
+          --name pythowncloud-container \
+          -e POC_API_KEY="dummy-api-key" \
+          -e POC_LOGIN_PASSWORD_HASH="dummy-hash" \
+          -e POC_S3_SECRET_KEY="dummy-secret" \
+          pythowncloud-app
+
+
 
 
     - name: Wait for container to start
