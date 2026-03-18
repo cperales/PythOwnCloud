@@ -30,7 +30,7 @@ jobs:
           timeout=60
           elapsed=0
           until [ $elapsed -ge $timeout ]; do
-            response=$(docker exec pythowncloud-container curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+            response=$(docker exec pythowncloud-container curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health) || true
             if [ "$response" = "200" ]; then
               echo "Health check passed!"
               exit 0
