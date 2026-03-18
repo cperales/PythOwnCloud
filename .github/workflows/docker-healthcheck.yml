@@ -1,0 +1,41 @@
+name: Docker Health Check
+
+on: [push]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t pythowncloud-app -f Dockerfile .
+
+      - name: Run Docker container
+        run: |
+          docker run -d \
+            -p 8000:8000 \
+            --name pythowncloud-container \
+            -e POC_API_KEY="dummy-api-key" \
+            -e POC_LOGIN_PASSWORD_HASH="dummy-hash" \
+            -e POC_S3_SECRET_KEY="dummy-secret" \
+            pythowncloud-app
+
+      - name: Wait for container to start
+        run: |
+          # Wait up to 60 seconds for the container to be ready
+          timeout=60
+          elapsed=0
+          until [ $elapsed -ge $timeout ]; do
+            response=$(docker exec pythowncloud-container curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health) || true
+            if [ "$response" = "200" ]; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+          done
+          echo "Health check failed after $timeout seconds" && exit 1
