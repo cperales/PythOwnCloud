@@ -184,7 +184,7 @@ type = s3
 provider = Other
 access_key_id = pythowncloud
 secret_access_key = <your-s3-secret-key>
-endpoint = http://<your-tailscale-ip>:8000/s3/
+endpoint = http://<your-tailscale-ip>:8000/
 region = us-east-1
 ```
 
@@ -242,7 +242,7 @@ POC_DB_PATH_DIR=/home/pi/poc-db
 │    │     FastAPI + uvicorn           │                   │
 │    │     REST API  /files/           │                   │
 │    │     WebDAV    /dav/ (and /)     │                   │
-│    │     S3        /s3/              │                   │
+│    │     S3        /storage/              │                   │
 │    │     SQLite + LRU cache          │                   │
 │    │     ffmpeg (thumbnails)         │                   │
 │    │     ~30-50 MB RAM               │                   │
