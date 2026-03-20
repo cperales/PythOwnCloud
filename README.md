@@ -166,7 +166,7 @@ curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 
 ## S3-Compatible API
 
-AWS S3-compatible API at `/s3/` for programmatic access and rclone integration. Supports:
+AWS S3-compatible API at `/storage/` for programmatic access and rclone integration. Supports:
 
 - Single-object operations: GET, PUT, HEAD, DELETE
 - Bucket operations: ListBuckets, HeadBucket, ListObjectsV2
