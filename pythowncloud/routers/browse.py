@@ -72,6 +72,10 @@ async def browse(
         rows = await db.list_directory(browse_path)
         _listing_cache[cache_key] = rows
 
+    # Exclude ignored folders such as ".thumb"
+    IGNORED_FOLDERS = {".thumb"}
+    rows = [row for row in rows if not (row["is_dir"] and row["filename"] in IGNORED_FOLDERS)]
+
     # Annotate rows with thumbnail availability
     for row in rows:
         if not row["is_dir"] and thumbnails.is_thumbable(row.get("extension")):

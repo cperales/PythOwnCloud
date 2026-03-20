@@ -166,7 +166,7 @@ curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 
 ## S3-Compatible API
 
-AWS S3-compatible API at `/s3/` for programmatic access and rclone integration. Supports:
+AWS S3-compatible API at `/storage/` for programmatic access and rclone integration. Supports:
 
 - Single-object operations: GET, PUT, HEAD, DELETE
 - Bucket operations: ListBuckets, HeadBucket, ListObjectsV2
@@ -184,7 +184,7 @@ type = s3
 provider = Other
 access_key_id = pythowncloud
 secret_access_key = <your-s3-secret-key>
-endpoint = http://<your-tailscale-ip>:8000/s3/
+endpoint = http://<your-tailscale-ip>:8000/
 region = us-east-1
 ```
 
@@ -242,7 +242,7 @@ POC_DB_PATH_DIR=/home/pi/poc-db
 │    │     FastAPI + uvicorn           │                   │
 │    │     REST API  /files/           │                   │
 │    │     WebDAV    /dav/ (and /)     │                   │
-│    │     S3        /s3/              │                   │
+│    │     S3        /storage/              │                   │
 │    │     SQLite + LRU cache          │                   │
 │    │     ffmpeg (thumbnails)         │                   │
 │    │     ~30-50 MB RAM               │                   │

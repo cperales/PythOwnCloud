@@ -716,7 +716,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         logger.info(f"Completed multipart upload {upload_id} to {key}")
 
         return Response(
-            content=build_complete_multipart("storage", key, etag, location=f"/s3/storage/{key}"),
+            content=build_complete_multipart("storage", key, etag, location=f"/storage/{key}"),
             media_type="application/xml",
             status_code=200,
         )

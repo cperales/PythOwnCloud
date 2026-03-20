@@ -65,7 +65,7 @@ class S3RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         if (has_s3_header_auth or has_presigned) and response.status_code >= 400:
             s3_logger.warning(
-                "S3 error response: %s %s → %d  (S3 API is at /s3/storage/...)",
+                "S3 error response: %s %s → %d  (S3 API is at /storage/...)",
                 request.method, request.url.path, response.status_code,
             )
 
@@ -112,7 +112,7 @@ async def not_found_handler(request: Request, _exc):
     has_s3_auth = auth.startswith("AWS4-HMAC-SHA256") or "X-Amz-Signature" in request.url.query
     if has_s3_auth:
         s3_logger.warning(
-            "S3 404: %s %s — endpoint must include /s3 prefix (configure as http://host:8000/s3)",
+            "S3 404: %s %s — endpoint must include /storage/ (configure as http://host:8000/)",
             request.method, request.url.path,
         )
         return Response(
@@ -130,5 +130,5 @@ app.include_router(dirs.router)
 app.include_router(browse.router)
 app.include_router(search.router)
 app.include_router(webdav.router)
-app.include_router(s3.router, prefix="/s3")  # S3-compatible API at /s3
-app.include_router(s3.router)  # Also mount at root so endpoint URL needs no /s3 suffix
+# Removed prefixed S3 router mount
+app.include_router(s3.router)  # S3-compatible API at /storage/ (root mount only)
