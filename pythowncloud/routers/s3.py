@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import urllib.parse
@@ -310,7 +311,12 @@ async def get_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                 media_type="application/xml",
                 status_code=400,
             )
-        return FileResponse(target)
+        media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        return FileResponse(
+            path=str(target),
+            media_type=media_type,
+            filename=target.name
+        )
     except HTTPException as e:
         return Response(
             content=build_error("AccessDenied", str(e.detail), key=key),
