@@ -53,6 +53,7 @@ _upload_locks: dict[str, asyncio.Lock] = {}
 
 # ─── List Buckets ──────────────────────────────────────────────────────────
 
+
 @router.get("/")
 async def list_buckets(_auth: str = Depends(verify_s3_auth)):
     """GET /s3/ — ListBuckets (returns single hardcoded bucket 'storage')."""
@@ -64,6 +65,7 @@ async def list_buckets(_auth: str = Depends(verify_s3_auth)):
 
 
 # ─── Head Bucket ──────────────────────────────────────────────────────────
+
 
 @router.head("/storage")
 async def head_bucket(_auth: str = Depends(verify_s3_auth)):
@@ -85,6 +87,7 @@ async def get_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
 
 
 # ─── Single-Object Operations ──────────────────────────────────────────────
+
 
 @router.put("/storage/{key:path}")
 async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
@@ -110,7 +113,14 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
 
     # Simple PUT: single-file upload
     now = datetime.now(timezone.utc)
-    logger.info("S3 PUT received [%02d:%02d:%02d]: key=%s, content-length=%s", now.hour, now.minute, now.second, key, request.headers.get("content-length"))
+    logger.info(
+        "S3 PUT received [%02d:%02d:%02d]: key=%s, content-length=%s",
+        now.hour,
+        now.minute,
+        now.second,
+        key,
+        request.headers.get("content-length"),
+    )
     try:
         target = safe_path(key)
 
@@ -143,7 +153,11 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                     if size > settings.max_upload_bytes:
                         target.unlink(missing_ok=True)
                         return Response(
-                            content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size", key=key),
+                            content=build_error(
+                                "EntityTooLarge",
+                                "Your proposed upload exceeds the maximum allowed size",
+                                key=key,
+                            ),
                             media_type="application/xml",
                             status_code=400,
                         )
@@ -185,7 +199,9 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                     thumbnails.invalidate_thumbnail(rel)
                     await thumbnails.ensure_thumbnail(rel, ext)
                 except Exception:
-                    logger.warning("Thumbnail generation failed for %s", key, exc_info=True)
+                    logger.warning(
+                        "Thumbnail generation failed for %s", key, exc_info=True
+                    )
             elif thumbnails.is_thumbable(ext):
                 thumbnails.invalidate_thumbnail(rel)
         except Exception:
@@ -217,7 +233,7 @@ async def _copy_object(dst_key: str, request: Request) -> Response:
     copy_source = urllib.parse.unquote(request.headers["x-amz-copy-source"])
     src_key = copy_source.lstrip("/")
     if src_key.startswith("storage/"):
-        src_key = src_key[len("storage/"):]
+        src_key = src_key[len("storage/") :]
 
     src = safe_path(src_key)
     dst = safe_path(dst_key)
@@ -244,7 +260,11 @@ async def _copy_object(dst_key: str, request: Request) -> Response:
 
     if same_file:
         row = await db.get_file_row(str(dst.relative_to(get_storage())))
-        md5 = row["md5"] if row and row.get("md5") else hashlib.md5(dst.read_bytes()).hexdigest()
+        md5 = (
+            row["md5"]
+            if row and row.get("md5")
+            else hashlib.md5(dst.read_bytes()).hexdigest()
+        )
         checksum = row.get("checksum", "") if row else ""
     else:
         h_sha256 = hashlib.sha256()
@@ -272,7 +292,12 @@ async def _copy_object(dst_key: str, request: Request) -> Response:
 
     logger.info(
         "S3 CopyObject [%02d:%02d:%02d]: %s -> %s (mtime=%s)",
-        mtime.hour, mtime.minute, mtime.second, src_key, dst_key, mtime_raw,
+        mtime.hour,
+        mtime.minute,
+        mtime.second,
+        src_key,
+        dst_key,
+        mtime_raw,
     )
 
     return Response(
@@ -301,7 +326,9 @@ async def get_object(key: str, request: Request, _auth: str = Depends(verify_s3_
         target = safe_path(key)
         if not target.exists():
             return Response(
-                content=build_error("NoSuchKey", "The specified key does not exist.", key=key),
+                content=build_error(
+                    "NoSuchKey", "The specified key does not exist.", key=key
+                ),
                 media_type="application/xml",
                 status_code=404,
             )
@@ -313,9 +340,7 @@ async def get_object(key: str, request: Request, _auth: str = Depends(verify_s3_
             )
         media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         return FileResponse(
-            path=str(target),
-            media_type=media_type,
-            filename=target.name
+            path=str(target), media_type=media_type, filename=target.name
         )
     except HTTPException as e:
         return Response(
@@ -360,7 +385,9 @@ async def head_object(key: str, _auth: str = Depends(verify_s3_auth)):
 
 
 @router.delete("/storage/{key:path}")
-async def delete_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
+async def delete_object(
+    key: str, request: Request, _auth: str = Depends(verify_s3_auth)
+):
     """
     DELETE /s3/storage/{key} — Delete a file or abort multipart upload.
 
@@ -385,6 +412,7 @@ async def delete_object(key: str, request: Request, _auth: str = Depends(verify_
         if target.is_dir():
             # Delete directory recursively
             import shutil
+
             shutil.rmtree(target)
             if db.get_pool() is not None:
                 try:
@@ -419,6 +447,7 @@ async def delete_object(key: str, request: Request, _auth: str = Depends(verify_
 
 # ─── Multipart Upload ──────────────────────────────────────────────────────
 
+
 @router.post("/storage/{key:path}")
 async def post_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
     """
@@ -447,6 +476,7 @@ async def post_object(key: str, request: Request, _auth: str = Depends(verify_s3
 
 
 # ─── Multipart Helper Functions ────────────────────────────────────────────
+
 
 async def _initiate_multipart(key: str) -> Response:
     """POST ?uploads — create a new multipart upload."""
@@ -485,7 +515,9 @@ async def _initiate_multipart(key: str) -> Response:
         )
 
 
-async def _upload_part(key: str, upload_id: str, part_number: int, request: Request) -> Response:
+async def _upload_part(
+    key: str, upload_id: str, part_number: int, request: Request
+) -> Response:
     """PUT ?partNumber=N&uploadId=X — upload a part."""
     try:
         uploads_dir = settings.tus_upload_path
@@ -493,7 +525,9 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
 
         if not meta_file.exists():
             return Response(
-                content=build_error("NoSuchUpload", "The specified upload does not exist."),
+                content=build_error(
+                    "NoSuchUpload", "The specified upload does not exist."
+                ),
                 media_type="application/xml",
                 status_code=404,
             )
@@ -510,7 +544,10 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
                     if size > settings.max_upload_bytes:
                         part_file.unlink(missing_ok=True)
                         return Response(
-                            content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size"),
+                            content=build_error(
+                                "EntityTooLarge",
+                                "Your proposed upload exceeds the maximum allowed size",
+                            ),
                             media_type="application/xml",
                             status_code=400,
                         )
@@ -518,7 +555,9 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
                     h_md5.update(chunk)
         except ClientDisconnect:
             part_file.unlink(missing_ok=True)
-            logger.warning("Client disconnected during S3 part upload for %s", upload_id)
+            logger.warning(
+                "Client disconnected during S3 part upload for %s", upload_id
+            )
             return Response(status_code=400)
 
         # Record part info in metadata — use a per-upload lock to prevent
@@ -551,7 +590,9 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
         )
 
 
-async def _complete_multipart(key: str, upload_id: str, request: Request) -> Response:
+async def _complete_multipart(
+    key: str, upload_id: str, request: Request, _auth: str = Depends(verify_s3_auth)
+) -> Response:
     """POST ?uploadId=X — complete the multipart upload."""
     try:
         uploads_dir = settings.tus_upload_path
@@ -559,7 +600,9 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
 
         if not meta_file.exists():
             return Response(
-                content=build_error("NoSuchUpload", "The specified upload does not exist."),
+                content=build_error(
+                    "NoSuchUpload", "The specified upload does not exist."
+                ),
                 media_type="application/xml",
                 status_code=404,
             )
@@ -570,7 +613,11 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
 
         # Parse CompleteMultipartUpload XML from request body
         body = await request.body()
-        logger.warning("CompleteMultipartUpload body (%d bytes): %r", len(body), body[:500] if body else b"")
+        logger.warning(
+            "CompleteMultipartUpload body (%d bytes): %r",
+            len(body),
+            body[:500] if body else b"",
+        )
         try:
             root = ET.fromstring(body)
             parts_from_request = {}
@@ -581,11 +628,14 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
             if not parts_elems:
                 parts_elems = root.findall(".//Part")
 
-
             for part_elem in parts_elems:
                 # Try namespace-qualified first, then fallback
-                pn_text = part_elem.findtext(f"{NS}PartNumber") or part_elem.findtext("PartNumber")
-                etag_text = part_elem.findtext(f"{NS}ETag") or part_elem.findtext("ETag")
+                pn_text = part_elem.findtext(f"{NS}PartNumber") or part_elem.findtext(
+                    "PartNumber"
+                )
+                etag_text = part_elem.findtext(f"{NS}ETag") or part_elem.findtext(
+                    "ETag"
+                )
                 if pn_text and etag_text:
                     part_number = int(pn_text)
                     parts_from_request[part_number] = etag_text
@@ -602,7 +652,9 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
             part_key = str(part_num)
             if part_key not in meta["parts"]:
                 return Response(
-                    content=build_error("InvalidPartOrder", f"Part {part_num} not found"),
+                    content=build_error(
+                        "InvalidPartOrder", f"Part {part_num} not found"
+                    ),
                     media_type="application/xml",
                     status_code=400,
                 )
@@ -612,10 +664,14 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
             if stored_etag != client_etag:
                 logger.debug(
                     "ETag mismatch for part %d: stored=%s, client=%s",
-                    part_num, stored_etag, client_etag
+                    part_num,
+                    stored_etag,
+                    client_etag,
                 )
                 return Response(
-                    content=build_error("InvalidPartOrder", f"ETag mismatch for part {part_num}"),
+                    content=build_error(
+                        "InvalidPartOrder", f"ETag mismatch for part {part_num}"
+                    ),
                     media_type="application/xml",
                     status_code=400,
                 )
@@ -636,7 +692,9 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     if not part_file.exists():
                         temp_file.unlink(missing_ok=True)
                         return Response(
-                            content=build_error("InvalidPartOrder", f"Part {part_num} file not found"),
+                            content=build_error(
+                                "InvalidPartOrder", f"Part {part_num} file not found"
+                            ),
                             media_type="application/xml",
                             status_code=400,
                         )
@@ -659,6 +717,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         # Move temp file to final destination (atomic)
         try:
             import shutil
+
             shutil.move(str(temp_file), str(target))
         except Exception as e:
             temp_file.unlink(missing_ok=True)
@@ -690,7 +749,11 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     md5=multipart_etag,
                 )
             except Exception:
-                logger.warning("DB upsert failed after S3 multipart completion of %s", key, exc_info=True)
+                logger.warning(
+                    "DB upsert failed after S3 multipart completion of %s",
+                    key,
+                    exc_info=True,
+                )
 
         # Generate thumbnail
         try:
@@ -703,7 +766,9 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     thumbnails.invalidate_thumbnail(rel)
                     await thumbnails.ensure_thumbnail(rel, ext)
                 except Exception:
-                    logger.warning("Thumbnail generation failed for %s", key, exc_info=True)
+                    logger.warning(
+                        "Thumbnail generation failed for %s", key, exc_info=True
+                    )
             elif thumbnails.is_thumbable(ext):
                 thumbnails.invalidate_thumbnail(rel)
         except Exception:
@@ -722,7 +787,9 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         logger.info(f"Completed multipart upload {upload_id} to {key}")
 
         return Response(
-            content=build_complete_multipart("storage", key, etag, location=f"/s3/storage/{key}"),
+            content=build_complete_multipart(
+                "storage", key, etag, location=f"/s3/storage/{key}"
+            ),
             media_type="application/xml",
             status_code=200,
         )
@@ -773,7 +840,9 @@ async def _list_parts(key: str, upload_id: str) -> Response:
 
         if not meta_file.exists():
             return Response(
-                content=build_error("NoSuchUpload", "The specified upload does not exist."),
+                content=build_error(
+                    "NoSuchUpload", "The specified upload does not exist."
+                ),
                 media_type="application/xml",
                 status_code=404,
             )
@@ -783,13 +852,17 @@ async def _list_parts(key: str, upload_id: str) -> Response:
 
         # Build parts list
         parts = []
-        for part_num_str, part_info in sorted(meta.get("parts", {}).items(), key=lambda x: int(x[0])):
-            parts.append({
-                "part_number": int(part_num_str),
-                "size": part_info["size"],
-                "etag": part_info["etag"],
-                "modified_at": datetime.now(tz=timezone.utc),
-            })
+        for part_num_str, part_info in sorted(
+            meta.get("parts", {}).items(), key=lambda x: int(x[0])
+        ):
+            parts.append(
+                {
+                    "part_number": int(part_num_str),
+                    "size": part_info["size"],
+                    "etag": part_info["etag"],
+                    "modified_at": datetime.now(tz=timezone.utc),
+                }
+            )
 
         return Response(
             content=build_list_parts("storage", key, upload_id, parts),
@@ -821,7 +894,7 @@ async def _list_objects_v2(request: Request) -> Response:
         if continuation_tok:
             try:
                 after_key = base64.urlsafe_b64decode(
-                    continuation_tok.encode() + b"=="   # safe re-padding
+                    continuation_tok.encode() + b"=="  # safe re-padding
                 ).decode()
             except Exception:
                 after_key = ""
@@ -829,10 +902,14 @@ async def _list_objects_v2(request: Request) -> Response:
         # Get listing from DB
         if not delimiter:
             # Flat listing (no delimiter): recursively list all files under prefix
-            objects = await db.list_all_under(
-                prefix_for_db, after_key=after_key, limit=max_keys + 1
-            ) if prefix_for_db else await db.list_all_under(
-                "", after_key=after_key, limit=max_keys + 1
+            objects = (
+                await db.list_all_under(
+                    prefix_for_db, after_key=after_key, limit=max_keys + 1
+                )
+                if prefix_for_db
+                else await db.list_all_under(
+                    "", after_key=after_key, limit=max_keys + 1
+                )
             )
 
             # Check truncation: we fetched max_keys + 1 to detect if more results exist
@@ -843,9 +920,11 @@ async def _list_objects_v2(request: Request) -> Response:
             # Compute next continuation token: base64-encode the last object's path
             next_token: str | None = None
             if is_truncated:
-                next_token = base64.urlsafe_b64encode(
-                    objects[-1]["path"].encode()
-                ).decode().rstrip("=")
+                next_token = (
+                    base64.urlsafe_b64encode(objects[-1]["path"].encode())
+                    .decode()
+                    .rstrip("=")
+                )
 
             key_count = len(objects)
             common_prefixes = []
@@ -863,7 +942,11 @@ async def _list_objects_v2(request: Request) -> Response:
             for item in items:
                 if item["is_dir"]:
                     # Add as common prefix (with trailing slash)
-                    prefix_key = item["path"] + "/" if not item["path"].endswith("/") else item["path"]
+                    prefix_key = (
+                        item["path"] + "/"
+                        if not item["path"].endswith("/")
+                        else item["path"]
+                    )
                     common_prefixes.add(prefix_key)
                 else:
                     objects.append(item)
