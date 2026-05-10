@@ -109,7 +109,9 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
 
     # Simple PUT: single-file upload
     now = datetime.now(timezone.utc)
-    logger.info("S3 PUT received [%02d:%02d:%02d]: key=%s, content-length=%s", now.hour, now.minute, now.second, key, request.headers.get("content-length"))
+    content_sha256 = request.headers.get("x-amz-content-sha256", "(none)")
+    logger.info("S3 PUT received [%02d:%02d:%02d]: key=%s, content-length=%s, content-sha256=%s",
+                now.hour, now.minute, now.second, key, request.headers.get("content-length"), content_sha256)
     try:
         target = safe_path(key)
 
@@ -151,8 +153,12 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                     h_md5.update(chunk)
         except ClientDisconnect:
             target.unlink(missing_ok=True)
-            logger.warning("Client disconnected during S3 PUT for %s", key)
-            return Response(status_code=400)
+            logger.warning("Client disconnected during S3 PUT for %s (content-sha256=%s)", key, request.headers.get("x-amz-content-sha256"))
+            return Response(
+                content=build_error("ServiceUnavailable", "Client disconnected during upload", key=key),
+                media_type="application/xml",
+                status_code=400,
+            )
 
         # Record in DB
         if db.get_pool() is not None:
@@ -481,6 +487,8 @@ async def _initiate_multipart(key: str) -> Response:
 
 async def _upload_part(key: str, upload_id: str, part_number: int, request: Request) -> Response:
     """PUT ?partNumber=N&uploadId=X — upload a part."""
+    content_sha256 = request.headers.get("x-amz-content-sha256", "(none)")
+    logger.info("S3 part upload: part_number=%d, upload_id=%s, content-sha256=%s", part_number, upload_id, content_sha256)
     try:
         uploads_dir = settings.tus_upload_path
         meta_file = uploads_dir / f"{upload_id}.meta"
@@ -512,8 +520,12 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
                     h_md5.update(chunk)
         except ClientDisconnect:
             part_file.unlink(missing_ok=True)
-            logger.warning("Client disconnected during S3 part upload for %s", upload_id)
-            return Response(status_code=400)
+            logger.warning("Client disconnected during S3 part upload for %s (content-sha256=%s)", upload_id, request.headers.get("x-amz-content-sha256"))
+            return Response(
+                content=build_error("ServiceUnavailable", "Client disconnected during part upload", key=key),
+                media_type="application/xml",
+                status_code=400,
+            )
 
         # Record part info in metadata — use a per-upload lock to prevent
         # concurrent UploadPart requests from overwriting each other's writes

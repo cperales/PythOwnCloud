@@ -193,6 +193,13 @@ async def verify_s3_auth(request: Request) -> str:
         if not amz_date:
             raise HTTPException(status_code=403, detail="Missing x-amz-date header")
 
+        # AWS Signature V4 Chunked Transfer Encoding (streaming signatures)
+        # When x-amz-content-sha256 = STREAMING-AWS4-HMAC-SHA256-PAYLOAD, the request body
+        # is sent with AWS chunked framing (not standard HTTP chunked encoding).
+        # We verify the Authorization header seed signature using this literal value as the payload hash.
+        if content_sha256 == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
+            logger.info("S3 streaming signature detected for %s %s (will verify seed signature)", request.method, request.url.path)
+
         payload_hash = content_sha256
 
     # Parse credential: ACCESS_KEY/DATESTAMP/REGION/s3/aws4_request

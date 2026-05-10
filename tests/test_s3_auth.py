@@ -295,3 +295,59 @@ class TestS3SignatureV4:
         response = self._build_s3_request_split_qs(client, "/storage", signed_qs, wire_qs)
         assert response.status_code == 200
         assert "ListBucketResult" in response.text
+
+    def test_streaming_signature_detected(self, client, caplog):
+        """
+        Verify that AWS Signature V4 chunked transfer encoding (streaming signatures)
+        are properly detected and logged. This is used for large file uploads.
+        """
+        import logging
+        caplog.set_level(logging.INFO)
+
+        # Build a normal S3 GET request but with streaming signature header
+        payload_hash = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
+        amz_date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = amz_date[:8]
+        path = "/storage"
+        credential_str = f"{S3_ACCESS_KEY}/{date_stamp}/us-east-1/s3/aws4_request"
+
+        # Compute signature using the streaming payload hash
+        canonical_request = (
+            f"GET\n{path}\n\n"
+            f"host:testserver\n"
+            f"x-amz-content-sha256:{payload_hash}\n"
+            f"x-amz-date:{amz_date}\n\n"
+            f"host;x-amz-content-sha256;x-amz-date\n"
+            f"{payload_hash}"
+        )
+        canonical_hash = hashlib.sha256(canonical_request.encode()).hexdigest()
+
+        k_date = hmac.new(
+            f"AWS4{S3_SECRET_KEY}".encode(),
+            date_stamp.encode(),
+            hashlib.sha256,
+        ).digest()
+        k_region = hmac.new(k_date, b"us-east-1", hashlib.sha256).digest()
+        k_service = hmac.new(k_region, b"s3", hashlib.sha256).digest()
+        k_signing = hmac.new(k_service, b"aws4_request", hashlib.sha256).digest()
+
+        string_to_sign = (
+            f"AWS4-HMAC-SHA256\n{amz_date}\n"
+            f"{date_stamp}/us-east-1/s3/aws4_request\n{canonical_hash}"
+        )
+        signature = hmac.new(k_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+        headers = {
+            "Authorization": (
+                f"AWS4-HMAC-SHA256 Credential={credential_str}, "
+                f"SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={signature}"
+            ),
+            "x-amz-date": amz_date,
+            "x-amz-content-sha256": payload_hash,
+        }
+
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+
+        # Verify that streaming signature was logged
+        assert "streaming signature detected" in caplog.text.lower()
