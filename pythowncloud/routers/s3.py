@@ -148,7 +148,9 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                             media_type="application/xml",
                             status_code=400,
                         )
-                    f.write(chunk)
+                    # Offload disk write to thread pool — avoids blocking the event loop
+                    # on slow USB 2.0 / SD card storage (critical for Pi 3 with concurrent uploads)
+                    await asyncio.to_thread(f.write, chunk)
                     h_sha256.update(chunk)
                     h_md5.update(chunk)
         except ClientDisconnect:
@@ -157,7 +159,7 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
             return Response(
                 content=build_error("ServiceUnavailable", "Client disconnected during upload", key=key),
                 media_type="application/xml",
-                status_code=400,
+                status_code=503,
             )
 
         # Record in DB
@@ -516,7 +518,9 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
                             media_type="application/xml",
                             status_code=400,
                         )
-                    f.write(chunk)
+                    # Offload disk write to thread pool — avoids blocking the event loop
+                    # on slow USB 2.0 / SD card storage (critical for Pi 3 with concurrent uploads)
+                    await asyncio.to_thread(f.write, chunk)
                     h_md5.update(chunk)
         except ClientDisconnect:
             part_file.unlink(missing_ok=True)
@@ -524,7 +528,7 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
             return Response(
                 content=build_error("ServiceUnavailable", "Client disconnected during part upload", key=key),
                 media_type="application/xml",
-                status_code=400,
+                status_code=503,
             )
 
         # Record part info in metadata — use a per-upload lock to prevent
