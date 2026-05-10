@@ -18,6 +18,15 @@ from pythowncloud.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _normalize_qs_param(raw: str) -> str:
+    """
+    Normalize a query parameter per AWS Signature V4 / RFC 3986.
+    Decodes percent-encoded values, then re-encodes using only RFC 3986 unreserved chars as safe.
+    Example: 'Fotos%2F2021+Kayak%2F' → 'Fotos%2F2021%2BKayak%2F'
+    """
+    return quote(unquote(raw), safe="~")
+
+
 def _canonical_uri(path: str) -> str:
     """
     Normalize path for Signature V4: URI-encode each segment according to RFC 3986.
@@ -94,16 +103,19 @@ def _canonical_request(
 
 
 def _parse_raw_query(raw_query: str) -> list[tuple[str, str]]:
-    """Split raw (already percent-encoded) query string into sorted key=value pairs."""
+    """
+    Split raw percent-encoded query string into normalized key=value pairs.
+    Each key and value is decoded then re-encoded per AWS Signature V4 / RFC 3986.
+    """
     pairs = []
     for part in raw_query.split("&"):
         if not part:
             continue
         if "=" in part:
             k, v = part.split("=", 1)
-            pairs.append((k, v))
+            pairs.append((_normalize_qs_param(k), _normalize_qs_param(v)))
         else:
-            pairs.append((part, ""))
+            pairs.append((_normalize_qs_param(part), ""))
     return pairs
 
 
