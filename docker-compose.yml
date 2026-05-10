@@ -17,4 +17,4 @@ services:
       - POC_S3_ACCESS_KEY=${POC_S3_ACCESS_KEY:-pythowncloud}
       - POC_S3_SECRET_KEY=${POC_S3_SECRET_KEY}
     mem_limit: 128m
-    memswap_limit: 192m
+    memswap_limit: 140m
