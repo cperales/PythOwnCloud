@@ -8,7 +8,7 @@ Uses only stdlib: hmac, hashlib, urllib.parse.
 import hashlib
 import hmac
 import logging
-from urllib.parse import unquote, quote
+from urllib.parse import unquote, unquote_plus, quote
 
 from fastapi import Request
 from fastapi.exceptions import HTTPException
@@ -18,13 +18,18 @@ from pythowncloud.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _normalize_qs_param(raw: str) -> str:
+def _normalize_qs_param(raw: str, plus_is_space: bool = False) -> str:
     """
     Normalize a query parameter per AWS Signature V4 / RFC 3986.
     Decodes percent-encoded values, then re-encodes using only RFC 3986 unreserved chars as safe.
-    Example: 'Fotos%2F2021+Kayak%2F' → 'Fotos%2F2021%2BKayak%2F'
+
+    With plus_is_space=False (default), '+' is treated as a literal '+' character and
+    re-encoded as '%2B'. This matches boto3 / AWS Java v2 SDK.
+    With plus_is_space=True, '+' is treated as a space and re-encoded as '%20'. This matches
+    clients that use form-style encoding for query strings (e.g. S3Drive on Android).
     """
-    return quote(unquote(raw), safe="~")
+    decoded = unquote_plus(raw) if plus_is_space else unquote(raw)
+    return quote(decoded, safe="~")
 
 
 def _canonical_uri(path: str) -> str:
@@ -102,10 +107,11 @@ def _canonical_request(
     return canonical_request, signed_headers
 
 
-def _parse_raw_query(raw_query: str) -> list[tuple[str, str]]:
+def _parse_raw_query(raw_query: str, plus_is_space: bool = False) -> list[tuple[str, str]]:
     """
     Split raw percent-encoded query string into normalized key=value pairs.
     Each key and value is decoded then re-encoded per AWS Signature V4 / RFC 3986.
+    See _normalize_qs_param for the plus_is_space flag.
     """
     pairs = []
     for part in raw_query.split("&"):
@@ -113,10 +119,22 @@ def _parse_raw_query(raw_query: str) -> list[tuple[str, str]]:
             continue
         if "=" in part:
             k, v = part.split("=", 1)
-            pairs.append((_normalize_qs_param(k), _normalize_qs_param(v)))
+            pairs.append((
+                _normalize_qs_param(k, plus_is_space),
+                _normalize_qs_param(v, plus_is_space),
+            ))
         else:
-            pairs.append((_normalize_qs_param(part), ""))
+            pairs.append((_normalize_qs_param(part, plus_is_space), ""))
     return pairs
+
+
+def _build_canonical_query_string(
+    raw_query: str, is_presigned: bool, plus_is_space: bool
+) -> str:
+    pairs = _parse_raw_query(raw_query, plus_is_space=plus_is_space)
+    if is_presigned:
+        pairs = [(k, v) for k, v in pairs if k != "X-Amz-Signature"]
+    return "&".join(f"{k}={v}" for k, v in sorted(pairs))
 
 
 async def verify_s3_auth(request: Request) -> str:
@@ -145,13 +163,6 @@ async def verify_s3_auth(request: Request) -> str:
 
         if not all([credential, signed_headers, provided_signature, amz_date]):
             raise HTTPException(status_code=403, detail="Missing pre-signed URL parameters")
-
-        # Canonical query string excludes X-Amz-Signature, sorted
-        canonical_pairs = [
-            (k, v) for k, v in _parse_raw_query(request.url.query)
-            if k != "X-Amz-Signature"
-        ]
-        query_string = "&".join(f"{k}={v}" for k, v in sorted(canonical_pairs))
 
         # Pre-signed requests always use UNSIGNED-PAYLOAD
         payload_hash = "UNSIGNED-PAYLOAD"
@@ -184,10 +195,6 @@ async def verify_s3_auth(request: Request) -> str:
 
         payload_hash = content_sha256
 
-        # Canonical query string: sort raw pairs as-is
-        raw_pairs = _parse_raw_query(request.url.query)
-        query_string = "&".join(f"{k}={v}" for k, v in sorted(raw_pairs))
-
     # Parse credential: ACCESS_KEY/DATESTAMP/REGION/s3/aws4_request
     # URL-decode credential in case it's percent-encoded (common in presigned URLs)
     decoded_credential = unquote(credential)
@@ -212,24 +219,33 @@ async def verify_s3_auth(request: Request) -> str:
         if header_value is not None:
             headers_to_sign[header_name] = header_value
 
-    # Build and hash canonical request
+    # Build and hash canonical request. Some clients (e.g. S3Drive on Android) use
+    # form-style encoding for spaces (`+` on the wire) but sign per AWS spec (`%20`).
+    # Try the strict literal-`+` interpretation first; if it doesn't match and the raw
+    # query contains `+`, retry treating `+` as space.
     path = request.url.path
-    canonical, _ = _canonical_request(request.method, path, query_string, headers_to_sign, payload_hash)
-    canonical_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-    # String to sign
-    string_to_sign = (
-        f"AWS4-HMAC-SHA256\n"
-        f"{amz_date}\n"
-        f"{date_stamp}/{region}/s3/aws4_request\n"
-        f"{canonical_hash}"
-    )
-
-    # Compute and compare signature
     signing_key = _sign_key(settings.s3_secret_key, date_stamp, region, "s3")
-    computed_signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    raw_query = request.url.query
 
-    if not hmac.compare_digest(computed_signature, provided_signature):
+    def _compute(plus_is_space: bool) -> str:
+        query_string = _build_canonical_query_string(raw_query, is_presigned, plus_is_space)
+        canonical, _ = _canonical_request(
+            request.method, path, query_string, headers_to_sign, payload_hash
+        )
+        canonical_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        string_to_sign = (
+            f"AWS4-HMAC-SHA256\n"
+            f"{amz_date}\n"
+            f"{date_stamp}/{region}/s3/aws4_request\n"
+            f"{canonical_hash}"
+        )
+        return hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    matched = hmac.compare_digest(_compute(False), provided_signature)
+    if not matched and "+" in raw_query:
+        matched = hmac.compare_digest(_compute(True), provided_signature)
+
+    if not matched:
         logger.warning(
             "S3 signature mismatch for key %s (presigned=%s) — %s %s",
             access_key, is_presigned, request.method, path,
