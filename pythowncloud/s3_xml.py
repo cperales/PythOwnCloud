@@ -175,3 +175,64 @@ def build_copy_object(etag: str, last_modified: datetime) -> str:
     ET.SubElement(root, "ETag").text = f'"{etag}"'
 
     return ET.tostring(root, encoding="unicode")
+
+
+def _strip_ns(tag: str) -> str:
+    """Return an XML tag name with any namespace prefix removed."""
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def parse_delete_request(xml_body: bytes) -> tuple[list[str], bool]:
+    """
+    Parse the <Delete> XML body of a DeleteObjects (Multi-Object Delete) request.
+
+    Example body:
+        <Delete>
+          <Object><Key>foo/bar.txt</Key></Object>
+          <Object><Key>foo/baz.txt</Key></Object>
+          <Quiet>false</Quiet>
+        </Delete>
+
+    Returns (keys, quiet).
+    """
+    root = ET.fromstring(xml_body)
+    keys: list[str] = []
+    quiet = False
+    for child in root:
+        tag = _strip_ns(child.tag)
+        if tag == "Object":
+            for sub in child:
+                if _strip_ns(sub.tag) == "Key" and sub.text:
+                    keys.append(sub.text)
+        elif tag == "Quiet" and child.text:
+            quiet = child.text.strip().lower() == "true"
+    return keys, quiet
+
+
+def build_delete_result(
+    deleted: list[str],
+    errors: list[tuple[str, str, str]],
+    quiet: bool = False,
+) -> str:
+    """
+    Build the <DeleteResult> XML response for the S3 DeleteObjects API.
+
+    errors: list of (key, code, message) tuples for keys that failed to delete.
+    If quiet is True, successfully deleted keys are omitted from the response
+    (errors are always included, per the S3 spec).
+    """
+    root = ET.Element("DeleteResult")
+    root.set("xmlns", "http://s3.amazonaws.com/doc/2006-03-01/")
+
+    if not quiet:
+        for key in deleted:
+            deleted_el = ET.SubElement(root, "Deleted")
+            ET.SubElement(deleted_el, "Key").text = key
+
+    for key, code, message in errors:
+        error_el = ET.SubElement(root, "Error")
+        ET.SubElement(error_el, "Key").text = key
+        ET.SubElement(error_el, "Code").text = code
+        ET.SubElement(error_el, "Message").text = message
+
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")

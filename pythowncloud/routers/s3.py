@@ -35,11 +35,13 @@ from pythowncloud.s3_xml import (
     build_abort_multipart,
     build_complete_multipart,
     build_copy_object,
+    build_delete_result,
     build_error,
     build_initiate_multipart,
     build_list_buckets,
     build_list_objects_v2,
     build_list_parts,
+    parse_delete_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,46 @@ async def get_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
             media_type="application/xml",
         )
     return await _list_objects_v2(request)
+
+
+@router.post("/storage")
+async def delete_objects(request: Request, _auth: str = Depends(verify_s3_auth)):
+    """POST /s3/storage?delete — DeleteObjects (Multi-Object / bulk delete)."""
+    if "delete" not in request.query_params:
+        return Response(
+            content=build_error("InvalidArgument", "Invalid POST parameters"),
+            media_type="application/xml",
+            status_code=400,
+        )
+
+    body = await request.body()
+    try:
+        keys, quiet = parse_delete_request(body)
+    except ET.ParseError:
+        return Response(
+            content=build_error("MalformedXML", "The XML you provided was not well-formed"),
+            media_type="application/xml",
+            status_code=400,
+        )
+
+    deleted: list[str] = []
+    errors: list[tuple[str, str, str]] = []
+
+    for key in keys:
+        try:
+            await _delete_single_key(key)
+            deleted.append(key)
+        except HTTPException as e:
+            errors.append((key, "AccessDenied", str(e.detail)))
+        except Exception as e:
+            logger.error("S3 bulk delete error for key %s: %s", key, e, exc_info=True)
+            errors.append((key, "InternalError", "Failed to delete object"))
+
+    return Response(
+        content=build_delete_result(deleted, errors, quiet),
+        media_type="application/xml",
+        status_code=200,
+    )
 
 
 # ─── Single-Object Operations ──────────────────────────────────────────────
@@ -353,6 +395,42 @@ async def head_object(key: str, _auth: str = Depends(verify_s3_auth)):
         return Response(status_code=500)
 
 
+async def _delete_single_key(key: str) -> None:
+    """
+    Delete one object or directory by S3 key.
+
+    No-op if the key doesn't exist (matches S3 semantics: DeleteObject and
+    DeleteObjects both return success for missing keys). Raises on real
+    failures (e.g. permission errors) so callers can report them.
+    """
+    target = safe_path(key)
+    if not target.exists():
+        return
+
+    if target.is_dir():
+        shutil.rmtree(target)
+        if db.get_pool() is not None:
+            try:
+                rel = str(target.relative_to(get_storage()))
+                await db.delete_directory_rows(rel)
+            except Exception:
+                pass
+    else:
+        target.unlink()
+        if db.get_pool() is not None:
+            try:
+                rel = str(target.relative_to(get_storage()))
+                await db.delete_file_row(rel)
+            except Exception:
+                pass
+
+    try:
+        rel = str(target.relative_to(get_storage()))
+        invalidate_listing_cache(rel)
+    except Exception:
+        pass
+
+
 @router.delete("/storage/{key:path}")
 async def delete_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
     """
@@ -370,39 +448,7 @@ async def delete_object(key: str, request: Request, _auth: str = Depends(verify_
 
     # Delete file
     try:
-        target = safe_path(key)
-        if not target.exists():
-            return Response(
-                status_code=204,  # S3 returns 204 even if file doesn't exist
-            )
-
-        if target.is_dir():
-            # Delete directory recursively
-            import shutil
-            shutil.rmtree(target)
-            if db.get_pool() is not None:
-                try:
-                    rel = str(target.relative_to(get_storage()))
-                    await db.delete_directory_rows(rel)
-                except Exception:
-                    pass
-        else:
-            # Delete file
-            target.unlink()
-            if db.get_pool() is not None:
-                try:
-                    rel = str(target.relative_to(get_storage()))
-                    await db.delete_file_row(rel)
-                except Exception:
-                    pass
-
-        # Invalidate cache
-        try:
-            rel = str(target.relative_to(get_storage()))
-            invalidate_listing_cache(rel)
-        except Exception:
-            pass
-
+        await _delete_single_key(key)
         return Response(status_code=204)
     except HTTPException as e:
         return Response(status_code=e.status_code)
