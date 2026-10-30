@@ -221,6 +221,7 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `POC_S3_REGION` | S3 region (arbitrary but must match client) | `us-east-1` |
 | `POC_S3_MAX_CONCURRENT_UPLOADS` | Max parallel S3 upload streams (PutObject + UploadPart); extra ones wait, then get `503 SlowDown` | `2` |
 | `POC_S3_UPLOAD_QUEUE_TIMEOUT_SECONDS` | How long an upload waits for a free slot before `503 SlowDown` | `20` |
+| `POC_LOG_LEVEL` | Log level of the application loggers (`DEBUG`, `INFO`, `WARNING`, `ERROR`); `INFO` logs every S3 request | `INFO` |
 
 ### Separate database storage
 

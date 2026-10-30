@@ -19,23 +19,10 @@ from pythowncloud.s3_xml import build_error
 from pythowncloud.uploads import cleanup_abandoned_uploads
 from pythowncloud.scanner import run_scan
 
-logger = logging.getLogger("uvicorn.access")
+logger = logging.getLogger(__name__)
 s3_logger = logging.getLogger("pythowncloud.s3")
 
 STATIC_DIR = Path(__file__).parent / "static"
-
-
-class HealthCheckFilter(BaseHTTPMiddleware):
-    """Log /health checks at DEBUG level instead of INFO to reduce noise."""
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # Set log level to DEBUG for /health checks
-        if request.url.path == "/health":
-            logger.debug(
-                f'{request.client.host}:{request.client.port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code}'
-            )
-        return response
 
 
 class S3RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -101,7 +88,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(HealthCheckFilter)
 app.add_middleware(S3RequestLoggingMiddleware)
 
 

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Log level for the pythowncloud.* loggers (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    log_level: str = "INFO"
+
     # Max upload size in bytes (default 2 GB)
     max_upload_bytes: int = 2 * 1024 * 1024 * 1024
 
