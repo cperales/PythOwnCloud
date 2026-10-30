@@ -185,17 +185,42 @@ async def list_directory(parent_path: str) -> list[dict[str, Any]]:
         """
         cursor = await _conn.execute(query)
     else:
-        p = parent_path.strip("/")
+        # Compares with substr, not LIKE, so _ and % in folder names are not wildcards
+        base = parent_path.strip("/") + "/"
         query = """
             SELECT * FROM files
-            WHERE path LIKE ? || '/%'
-              AND path NOT LIKE ? || '/%/%'
+            WHERE substr(path, 1, length(?)) = ?
+              AND instr(substr(path, length(?) + 1), '/') = 0
             ORDER BY is_dir DESC, filename ASC
         """
-        cursor = await _conn.execute(query, (p, p))
+        cursor = await _conn.execute(query, (base, base, base))
 
     rows = await cursor.fetchall()
     return [dict(r) for r in rows]
+
+
+async def list_child_prefixes(prefix: str) -> list[str]:
+    """
+    Return the folders directly under prefix, as paths with a trailing slash.
+    Derived from file paths, so it also finds folders that have no is_dir row.
+    """
+    if _conn is None:
+        return []
+
+    prefix = prefix.strip("/")
+    base = f"{prefix}/" if prefix else ""
+
+    # substr(path, length(?) + 1) is the path below base; a slash in it means a subfolder.
+    # Compares with substr, not LIKE, so _ and % in folder names are not wildcards.
+    query = """
+        SELECT DISTINCT substr(path, 1, length(?) + instr(substr(path, length(?) + 1), '/'))
+        FROM files
+        WHERE substr(path, 1, length(?)) = ?
+          AND instr(substr(path, length(?) + 1), '/') > 0
+    """
+    cursor = await _conn.execute(query, (base, base, base, base, base))
+    rows = await cursor.fetchall()
+    return [r[0] for r in rows]
 
 
 async def list_all_under(
@@ -224,8 +249,8 @@ async def list_all_under(
     params: list[Any] = []
 
     if prefix:
-        conditions.append("path LIKE ? || '/%'")
-        params.append(prefix)
+        conditions.append("substr(path, 1, length(?)) = ?")
+        params.extend([f"{prefix}/", f"{prefix}/"])
 
     if after_key:
         conditions.append("path > ?")

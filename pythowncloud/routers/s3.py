@@ -894,11 +894,16 @@ async def _list_parts(key: str, upload_id: str) -> Response:
         )
 
 
+def _continuation_token(key: str) -> str:
+    """Encode the last key of a page as a keyset cursor."""
+    return base64.urlsafe_b64encode(key.encode()).decode().rstrip("=")
+
+
 async def _list_objects_v2(request: Request) -> Response:
     """GET /s3/storage?list-type=2[&prefix=...&delimiter=...] — list objects."""
     try:
         raw_prefix = request.query_params.get("prefix", "")
-        delimiter = request.query_params.get("delimiter", "/")
+        delimiter = request.query_params.get("delimiter", "")
         max_keys = int(request.query_params.get("max-keys", "1000"))
 
         # Separate raw prefix (for XML response) from normalized prefix (for DB queries)
@@ -931,42 +936,30 @@ async def _list_objects_v2(request: Request) -> Response:
 
             # Compute next continuation token: base64-encode the last object's path
             next_token: str | None = None
-            if is_truncated:
-                next_token = base64.urlsafe_b64encode(
-                    objects[-1]["path"].encode()
-                ).decode().rstrip("=")
+            if is_truncated and objects:
+                next_token = _continuation_token(objects[-1]["path"])
 
             key_count = len(objects)
             common_prefixes = []
         else:
             # Delimited listing: only direct children
-            if prefix_for_db:
-                items = await db.list_directory(prefix_for_db)
-            else:
-                items = await db.list_directory("")
+            items = await db.list_directory(prefix_for_db)
 
-            # Split into objects (files) and common_prefixes (directories)
-            objects = []
-            common_prefixes = set()
+            # Split into objects (files) and common_prefixes (directories). Folders created
+            # through S3 have no is_dir row, so prefixes also come from the file paths.
+            objects_by_key = {item["path"]: item for item in items if not item["is_dir"]}
+            all_prefixes = set(await db.list_child_prefixes(prefix_for_db))
+            all_prefixes.update(item["path"].rstrip("/") + "/" for item in items if item["is_dir"])
 
-            for item in items:
-                if item["is_dir"]:
-                    # Add as common prefix (with trailing slash)
-                    prefix_key = item["path"] + "/" if not item["path"].endswith("/") else item["path"]
-                    common_prefixes.add(prefix_key)
-                else:
-                    objects.append(item)
+            # Objects and prefixes share one sorted keyspace, and each counts towards max_keys
+            keys = sorted(key for key in (*objects_by_key, *all_prefixes) if key > after_key)
+            page = keys[:max_keys]
+            is_truncated = bool(page) and len(keys) > max_keys
 
-            # Convert to list and sort
-            common_prefixes = sorted(list(common_prefixes))
-
-            # Apply max_keys and truncation (delimited path does not support pagination yet)
-            is_truncated = len(objects) > max_keys
-            if is_truncated:
-                objects = objects[:max_keys]
-
-            next_token = None
-            key_count = len(objects) + len(common_prefixes)
+            next_token = _continuation_token(page[-1]) if is_truncated else None
+            objects = [objects_by_key[key] for key in page if key in objects_by_key]
+            common_prefixes = [key for key in page if key not in objects_by_key]
+            key_count = len(page)
 
         # Build response
         return Response(
