@@ -16,7 +16,7 @@ import pythowncloud.db as db
 from pythowncloud.config import settings
 from pythowncloud.routers import login, files, dirs, browse, search, webdav, s3
 from pythowncloud.s3_xml import build_error
-from pythowncloud.uploads import cleanup_abandoned_uploads
+from pythowncloud.uploads import periodic_upload_cleanup
 from pythowncloud.scanner import run_scan
 
 logger = logging.getLogger(__name__)
@@ -72,12 +72,13 @@ async def lifespan(app: FastAPI):
     # Ensure upload directory exists
     settings.tus_upload_path.mkdir(parents=True, exist_ok=True)
 
-    # Schedule cleanup of abandoned uploads as a background task
-    asyncio.create_task(cleanup_abandoned_uploads())
+    # Schedule recurring cleanup of abandoned uploads as a background task
+    cleanup_task = asyncio.create_task(periodic_upload_cleanup())
 
     yield
 
     # Shutdown
+    cleanup_task.cancel()
     await db.close_pool()
 
 
