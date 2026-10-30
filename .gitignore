@@ -1,6 +1,7 @@
 # Folders
 env/
 data/
+plans/
 .claude/
 __pycache__/
 .pytest_cache/
