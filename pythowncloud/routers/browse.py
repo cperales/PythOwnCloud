@@ -19,6 +19,18 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter()
 
+FAVICON = Path(__file__).parent.parent / "static" / "favicon-32.png"
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Browsers request /favicon.ico by default, even without a <link rel="icon">."""
+    return FileResponse(
+        path=str(FAVICON),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
 
 @router.get("/thumb/{file_path:path}", include_in_schema=False)
 async def get_thumbnail(

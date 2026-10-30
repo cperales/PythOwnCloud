@@ -229,6 +229,19 @@ POC_DATA_FOLDER=/mnt/external
 POC_DB_PATH_DIR=/home/pi/poc-db
 ```
 
+### Docker + Tailscale: real client IPs
+
+If requests arriving over Tailscale show up in the logs as the Docker gateway (`172.19.0.1`) instead of the client's `100.x.y.z` address, Tailscale is masquerading (SNAT) traffic it forwards to the container. By default it does this for forwarded traffic so that subnet routers work, but it gains nothing here unless the host advertises subnet routes. Turn it off on the host:
+
+```bash
+sudo tailscale set --snat-subnet-routes=false
+```
+
+- Affects all Tailscale traffic forwarded by the host, not just this container. If you ever advertise subnet routes, set it back to `true` or LAN devices will not be able to reply.
+- The setting is stored in Tailscale's prefs, so it survives restarts and reboots.
+- LAN clients (`192.168.x.x`) are not affected.
+- Alternatives: `network_mode: host` in `docker-compose.yml` (gives up network isolation), or, behind a reverse proxy, `--proxy-headers --forwarded-allow-ips=...` on uvicorn.
+
 ## Architecture
 
 ```

@@ -64,11 +64,11 @@
             </span>
           {% endif %}
           {% if item.extension in ('jpg','jpeg','png','gif','webp','heic','bmp','tiff') %}
-            <a href="#" onclick="openLightbox({{ item.path|tojson }}, {{ item.filename|tojson }}, event)">{{ item.filename }}</a>
+            <a href="#" class="media-link" data-kind="image" data-path="{{ item.path }}" data-name="{{ item.filename }}">{{ item.filename }}</a>
           {% elif item.extension in ('mp3','flac','aac','ogg') %}
-            <a href="#" onclick="openAudioPlayer({{ item.path|tojson }}, {{ item.filename|tojson }}, event)">{{ item.filename }}</a>
+            <a href="#" class="media-link" data-kind="audio" data-path="{{ item.path }}" data-name="{{ item.filename }}">{{ item.filename }}</a>
           {% elif item.extension in ('mp4','mov','webm') %}
-            <a href="#" onclick="openVideoPlayer({{ item.path|tojson }}, {{ item.filename|tojson }}, event)">{{ item.filename }}</a>
+            <a href="#" class="media-link" data-kind="video" data-path="{{ item.path }}" data-name="{{ item.filename }}">{{ item.filename }}</a>
           {% elif item.extension == 'mkv' %}
             <a href="/files/{{ item.path }}" download>{{ item.filename }}</a>
           {% else %}
@@ -367,21 +367,18 @@
 
   function getImageFilesInDirectory() {
     // Collect all image files from the current directory's file table
-    imageFiles = [];
-    const tbody = document.querySelector('.file-table tbody');
-    const rows = tbody.querySelectorAll('tr:not(.parent-row)');
-    rows.forEach((row) => {
-      const link = row.querySelector('.name-cell a');
-      if (!link || link.onclick?.toString().includes('openLightbox')) {
-        const filename = row.querySelector('.name-cell a')?.textContent || '';
-        const ext = filename.split('.').pop().toLowerCase();
-        if (imageExtensions.has(ext)) {
-          const path = link.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-          if (path) imageFiles.push(path);
-        }
-      }
-    });
+    imageFiles = Array.from(
+      document.querySelectorAll('.file-table a.media-link[data-kind="image"]')
+    ).map((link) => link.dataset.path);
   }
+
+  // Media links carry their path/name in data attributes (safe for any filename)
+  const mediaOpeners = { image: openLightbox, audio: openAudioPlayer, video: openVideoPlayer };
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('a.media-link');
+    if (!link) return;
+    mediaOpeners[link.dataset.kind](link.dataset.path, link.dataset.name, e);
+  });
 
   function openLightbox(path, filename, e) {
     e.preventDefault();
