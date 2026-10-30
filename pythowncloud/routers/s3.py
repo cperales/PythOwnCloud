@@ -17,6 +17,7 @@ import shutil
 import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +49,68 @@ router = APIRouter()
 
 # Per-upload locks to prevent race conditions on concurrent part uploads
 _upload_locks: dict[str, asyncio.Lock] = {}
+
+# Caps parallel upload streams (PutObject + UploadPart) so bulk syncs don't starve
+# reads on a Pi 3, where Ethernet and the USB disk share one USB 2.0 bus.
+_upload_slots = asyncio.Semaphore(settings.s3_max_concurrent_uploads)
+
+# Buffer for assembling multipart uploads (the old 8 KiB reads were needlessly slow on USB 2.0)
+_CONCAT_BUFFER_SIZE = 1024 * 1024
+
+
+class UploadBusy(Exception):
+    """No upload slot became free within s3_upload_queue_timeout_seconds."""
+
+
+@asynccontextmanager
+async def _upload_slot():
+    """Hold one upload slot; raise UploadBusy if none frees up in time."""
+    try:
+        await asyncio.wait_for(
+            _upload_slots.acquire(), settings.s3_upload_queue_timeout_seconds
+        )
+    except asyncio.TimeoutError:
+        raise UploadBusy() from None
+    try:
+        yield
+    finally:
+        _upload_slots.release()
+
+
+def _slow_down_response(key: str) -> Response:
+    """503 SlowDown — S3 clients (AWS SDK, rclone) back off and retry."""
+    return Response(
+        content=build_error("SlowDown", "Too many concurrent uploads, retry shortly", key=key),
+        media_type="application/xml",
+        status_code=503,
+        headers={"Retry-After": "5"},
+    )
+
+
+def _write_and_hash(f, chunk: bytes, *hashers) -> None:
+    """Write a chunk and feed it to the hashers. Runs in a worker thread, off the event loop."""
+    f.write(chunk)
+    for h in hashers:
+        h.update(chunk)
+
+
+def _concat_parts(part_files: list[Path], temp_file: Path) -> tuple[int, str, str]:
+    """Concatenate part files into temp_file. Returns (total_size, sha256_hex, md5_hex).
+
+    Blocking I/O and hashing: call through asyncio.to_thread.
+    """
+    h_sha256 = hashlib.sha256()
+    h_md5 = hashlib.md5()
+    total_size = 0
+    with open(temp_file, "wb") as f:
+        for part_file in part_files:
+            with open(part_file, "rb") as pf:
+                while chunk := pf.read(_CONCAT_BUFFER_SIZE):
+                    f.write(chunk)
+                    h_sha256.update(chunk)
+                    h_md5.update(chunk)
+                    total_size += len(chunk)
+    return total_size, h_sha256.hexdigest(), h_md5.hexdigest()
 
 
 # ─── List Buckets ──────────────────────────────────────────────────────────
@@ -138,21 +201,23 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
         h_sha256 = hashlib.sha256()
         h_md5 = hashlib.md5()
         try:
-            with open(target, "wb") as f:
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > settings.max_upload_bytes:
-                        target.unlink(missing_ok=True)
-                        return Response(
-                            content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size", key=key),
-                            media_type="application/xml",
-                            status_code=400,
-                        )
-                    # Offload disk write to thread pool — avoids blocking the event loop
-                    # on slow USB 2.0 / SD card storage (critical for Pi 3 with concurrent uploads)
-                    await asyncio.to_thread(f.write, chunk)
-                    h_sha256.update(chunk)
-                    h_md5.update(chunk)
+            async with _upload_slot():
+                with open(target, "wb") as f:
+                    async for chunk in request.stream():
+                        size += len(chunk)
+                        if size > settings.max_upload_bytes:
+                            target.unlink(missing_ok=True)
+                            return Response(
+                                content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size", key=key),
+                                media_type="application/xml",
+                                status_code=400,
+                            )
+                        # Offload disk write and hashing to the thread pool — avoids blocking
+                        # the event loop on slow USB 2.0 / SD card storage and on the Pi's CPU
+                        # (critical for Pi 3 with concurrent uploads and streaming reads)
+                        await asyncio.to_thread(_write_and_hash, f, chunk, h_sha256, h_md5)
+        except UploadBusy:
+            return _slow_down_response(key)
         except ClientDisconnect:
             target.unlink(missing_ok=True)
             logger.warning("Client disconnected during S3 PUT for %s (content-sha256=%s)", key, request.headers.get("x-amz-content-sha256"))
@@ -508,20 +573,22 @@ async def _upload_part(key: str, upload_id: str, part_number: int, request: Requ
         h_md5 = hashlib.md5()
 
         try:
-            with open(part_file, "wb") as f:
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > settings.max_upload_bytes:
-                        part_file.unlink(missing_ok=True)
-                        return Response(
-                            content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size"),
-                            media_type="application/xml",
-                            status_code=400,
-                        )
-                    # Offload disk write to thread pool — avoids blocking the event loop
-                    # on slow USB 2.0 / SD card storage (critical for Pi 3 with concurrent uploads)
-                    await asyncio.to_thread(f.write, chunk)
-                    h_md5.update(chunk)
+            async with _upload_slot():
+                with open(part_file, "wb") as f:
+                    async for chunk in request.stream():
+                        size += len(chunk)
+                        if size > settings.max_upload_bytes:
+                            part_file.unlink(missing_ok=True)
+                            return Response(
+                                content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size"),
+                                media_type="application/xml",
+                                status_code=400,
+                            )
+                        # Offload disk write and hashing to the thread pool — avoids blocking
+                        # the event loop (critical for Pi 3 with concurrent uploads)
+                        await asyncio.to_thread(_write_and_hash, f, chunk, h_md5)
+        except UploadBusy:
+            return _slow_down_response(key)
         except ClientDisconnect:
             part_file.unlink(missing_ok=True)
             logger.warning("Client disconnected during S3 part upload for %s (content-sha256=%s)", upload_id, request.headers.get("x-amz-content-sha256"))
@@ -635,28 +702,23 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         target.parent.mkdir(parents=True, exist_ok=True)
 
         temp_file = target.parent / f"{target.name}.tmp"
-        h_sha256 = hashlib.sha256()
-        h_md5_combined = hashlib.md5()
-        total_size = 0
+
+        part_files = []
+        for part_num in sorted(parts_from_request.keys()):
+            part_file = uploads_dir / f"{upload_id}.part.{part_num}"
+            if not part_file.exists():
+                return Response(
+                    content=build_error("InvalidPartOrder", f"Part {part_num} file not found"),
+                    media_type="application/xml",
+                    status_code=400,
+                )
+            part_files.append(part_file)
 
         try:
-            with open(temp_file, "wb") as f:
-                for part_num in sorted(parts_from_request.keys()):
-                    part_file = uploads_dir / f"{upload_id}.part.{part_num}"
-                    if not part_file.exists():
-                        temp_file.unlink(missing_ok=True)
-                        return Response(
-                            content=build_error("InvalidPartOrder", f"Part {part_num} file not found"),
-                            media_type="application/xml",
-                            status_code=400,
-                        )
-
-                    with open(part_file, "rb") as pf:
-                        while chunk := pf.read(8192):
-                            f.write(chunk)
-                            h_sha256.update(chunk)
-                            h_md5_combined.update(chunk)
-                            total_size += len(chunk)
+            # Assembling can move GBs over USB 2.0 — keep it off the event loop
+            total_size, sha256_hex, md5_hex = await asyncio.to_thread(
+                _concat_parts, part_files, temp_file
+            )
         except Exception as e:
             temp_file.unlink(missing_ok=True)
             logger.error("Failed to concatenate parts: %s", e, exc_info=True)
@@ -681,7 +743,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
 
         # Build ETag for multipart response and storage
         # For multipart uploads, ETag is "md5-of-part-md5s-partcount"
-        multipart_etag = f"{h_md5_combined.hexdigest()}-{len(parts_from_request)}"
+        multipart_etag = f"{md5_hex}-{len(parts_from_request)}"
 
         # Upsert to DB
         if db.get_pool() is not None:
@@ -694,7 +756,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
                     filename=target.name,
                     extension=ext,
                     size=total_size,
-                    checksum=h_sha256.hexdigest(),
+                    checksum=sha256_hex,
                     is_dir=False,
                     modified_at=mtime,
                     md5=multipart_etag,

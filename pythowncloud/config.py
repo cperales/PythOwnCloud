@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     s3_access_key: str = "pythowncloud"               # AWS access key ID
     s3_secret_key: str = ""                           # AWS secret access key (required)
     s3_region: str = "us-east-1"                      # AWS region (arbitrary, must match client)
+    s3_max_concurrent_uploads: int = 2                # parallel S3 upload streams (PutObject + UploadPart)
+    s3_upload_queue_timeout_seconds: int = 20         # wait for a free slot before replying 503 SlowDown
 
     model_config = {"env_prefix": "POC_", "env_file": ".env", "extra": "ignore"}
 
