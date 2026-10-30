@@ -16,6 +16,7 @@ from pythowncloud.auth import verify_api_key_or_session
 from pythowncloud.models import DirectoryListing, FileInfo, MoveRequest, UploadResponse
 from pythowncloud.helpers import get_storage, safe_path, file_info
 from pythowncloud.cache import _listing_cache, invalidate_listing_cache
+from pythowncloud.uploads import new_temp_path
 import pythowncloud.db as db
 import pythowncloud.thumbnails as thumbnails
 
@@ -91,20 +92,23 @@ async def upload_file(
     size = 0
     h = hashlib.sha256()
     m = hashlib.md5()
+    # Stream to a temp file: an interrupted upload must never touch an existing file
+    temp_file = new_temp_path()
     try:
-        with open(target, "wb") as f:
+        with open(temp_file, "wb") as f:
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > settings.max_upload_bytes:
-                    target.unlink(missing_ok=True)
                     raise HTTPException(status_code=413, detail="File exceeds maximum upload size")
                 f.write(chunk)
                 h.update(chunk)
                 m.update(chunk)
+        os.replace(temp_file, target)
     except ClientDisconnect:
         logger.warning("Client disconnected during upload of %s", file_path)
-        target.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Client disconnected during upload")
+    finally:
+        temp_file.unlink(missing_ok=True)
     if db.get_pool() is not None:
         try:
             mtime = datetime.fromtimestamp(target.stat().st_mtime, tz=timezone.utc)

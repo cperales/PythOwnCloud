@@ -7,6 +7,7 @@ Authentication uses HTTP Basic Auth (via verify_basic_auth).
 import hashlib
 import logging
 import mimetypes
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ from starlette.requests import ClientDisconnect
 from pythowncloud.auth import verify_basic_auth
 from pythowncloud.helpers import get_storage, safe_path
 from pythowncloud.cache import invalidate_listing_cache
+from pythowncloud.uploads import new_temp_path
 from pythowncloud.webdav_xml import build_propfind_response
 import pythowncloud.db as db
 import pythowncloud.thumbnails as thumbnails
@@ -224,17 +226,21 @@ async def upload_file(
     size = 0
     h = hashlib.sha256()
     m = hashlib.md5()
+    # Stream to a temp file: an interrupted upload must never touch an existing file
+    temp_file = new_temp_path()
     try:
-        with open(target, "wb") as f:
+        with open(temp_file, "wb") as f:
             async for chunk in request.stream():
                 f.write(chunk)
                 h.update(chunk)
                 m.update(chunk)
                 size += len(chunk)
+        os.replace(temp_file, target)
     except ClientDisconnect:
         logger.warning("Client disconnected during WebDAV upload of %s", file_path)
-        target.unlink(missing_ok=True)
         return Response(status_code=400)
+    finally:
+        temp_file.unlink(missing_ok=True)
 
     # Update database
     if db.get_pool() is not None:

@@ -32,6 +32,7 @@ from pythowncloud.helpers import get_storage, safe_path
 import pythowncloud.db as db
 import pythowncloud.thumbnails as thumbnails
 from pythowncloud.s3_auth import verify_s3_auth
+from pythowncloud.uploads import new_temp_path
 from pythowncloud.s3_xml import (
     build_abort_multipart,
     build_complete_multipart,
@@ -214,13 +215,14 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
         size = 0
         h_sha256 = hashlib.sha256()
         h_md5 = hashlib.md5()
+        # Stream to a temp file: an interrupted upload must never touch an existing object
+        temp_file = new_temp_path()
         try:
             async with _upload_slot():
-                with open(target, "wb") as f:
+                with open(temp_file, "wb") as f:
                     async for chunk in request.stream():
                         size += len(chunk)
                         if size > settings.max_upload_bytes:
-                            target.unlink(missing_ok=True)
                             return Response(
                                 content=build_error("EntityTooLarge", "Your proposed upload exceeds the maximum allowed size", key=key),
                                 media_type="application/xml",
@@ -230,16 +232,18 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
                         # the event loop on slow USB 2.0 / SD card storage and on the Pi's CPU
                         # (critical for Pi 3 with concurrent uploads and streaming reads)
                         await asyncio.to_thread(_write_and_hash, f, chunk, h_sha256, h_md5)
+            os.replace(temp_file, target)
         except UploadBusy:
             return _slow_down_response(key)
         except ClientDisconnect:
-            target.unlink(missing_ok=True)
             logger.warning("Client disconnected during S3 PUT for %s (content-sha256=%s)", key, request.headers.get("x-amz-content-sha256"))
             return Response(
                 content=build_error("ServiceUnavailable", "Client disconnected during upload", key=key),
                 media_type="application/xml",
                 status_code=503,
             )
+        finally:
+            temp_file.unlink(missing_ok=True)
 
         # Record in DB
         if db.get_pool() is not None:
@@ -715,7 +719,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
         target = safe_path(key)
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        temp_file = target.parent / f"{target.name}.tmp"
+        temp_file = new_temp_path()
 
         part_files = []
         for part_num in sorted(parts_from_request.keys()):
@@ -744,8 +748,7 @@ async def _complete_multipart(key: str, upload_id: str, request: Request) -> Res
 
         # Move temp file to final destination (atomic)
         try:
-            import shutil
-            shutil.move(str(temp_file), str(target))
+            os.replace(temp_file, target)
         except Exception as e:
             temp_file.unlink(missing_ok=True)
             logger.error("Failed to move file to final location: %s", e, exc_info=True)

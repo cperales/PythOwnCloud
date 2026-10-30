@@ -6,6 +6,7 @@ import base64
 import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect, Request
 
 import pythowncloud.config as config
 
@@ -401,3 +402,23 @@ class TestWebDAVMimeTypes:
         client.put("/dav/image.jpg", content=jpeg_data, headers=basic_auth_headers)
         resp = client.get("/dav/image.jpg", headers=basic_auth_headers)
         assert "image/jpeg" in resp.headers.get("Content-Type", "")
+
+
+class TestWebDAVInterruptedUpload:
+    """An interrupted PUT must leave the previous version in place."""
+
+    def test_keeps_existing_file(self, client, basic_auth_headers, monkeypatch):
+        put = client.put("/dav/interrupted.txt", content=b"original", headers=basic_auth_headers)
+        assert put.status_code == 201
+
+        async def stream(self):
+            yield b"partial"
+            raise ClientDisconnect()
+
+        monkeypatch.setattr(Request, "stream", stream)
+        resp = client.put("/dav/interrupted.txt", content=b"replacement", headers=basic_auth_headers)
+        monkeypatch.undo()
+
+        assert resp.status_code == 400
+        assert client.get("/dav/interrupted.txt", headers=basic_auth_headers).content == b"original"
+        assert not list(config.settings.tus_upload_path.glob("tmp-*"))

@@ -8,11 +8,20 @@ Removes abandoned uploads older than configured age:
 
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from pythowncloud.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def new_temp_path() -> Path:
+    """Return a unique temp path in .uploads, on the storage volume so os.replace() is atomic."""
+    uploads_dir = settings.tus_upload_path
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    return uploads_dir / f"tmp-{uuid.uuid4().hex}"
 
 
 async def cleanup_abandoned_uploads() -> None:

@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect, Request
 
 import pythowncloud.routers.s3 as s3
 from pythowncloud.config import settings
@@ -115,6 +116,68 @@ class TestPutObject:
         assert resp.headers["ETag"] == f'"{hashlib.md5(body).hexdigest()}"'
         assert (storage / "put" / "roundtrip.bin").read_bytes() == body
 
+    def test_put_replaces_existing_object(self, client, storage):
+        assert _put(client, "/storage/put/replace.bin", b"old").status_code == 200
+        assert _put(client, "/storage/put/replace.bin", b"new body").status_code == 200
+
+        assert (storage / "put" / "replace.bin").read_bytes() == b"new body"
+        assert not list((storage / ".uploads").glob("tmp-*"))
+
+
+# ─── Interrupted uploads ───────────────────────────────────────────────────────
+
+class TestInterruptedUpload:
+    @pytest.fixture
+    def client_disconnects(self, monkeypatch):
+        """Every request body yields one chunk, then the client goes away."""
+        async def stream(self):
+            yield b"partial"
+            raise ClientDisconnect()
+
+        monkeypatch.setattr(Request, "stream", stream)
+
+    def test_put_keeps_existing_object(self, client, storage, client_disconnects):
+        target = storage / "drop" / "keep.bin"
+        target.parent.mkdir(exist_ok=True)
+        target.write_bytes(b"already backed up")
+
+        resp = _put(client, "/storage/drop/keep.bin", b"replacement")
+
+        assert resp.status_code == 503
+        assert target.read_bytes() == b"already backed up"
+        assert not list((storage / ".uploads").glob("tmp-*"))
+
+    def test_put_of_new_key_leaves_nothing(self, client, storage, client_disconnects):
+        resp = _put(client, "/storage/drop/new.bin", b"replacement")
+
+        assert resp.status_code == 503
+        assert not (storage / "drop" / "new.bin").exists()
+        assert not list((storage / ".uploads").glob("tmp-*"))
+
+    def test_oversized_put_keeps_existing_object(self, client, storage, monkeypatch):
+        target = storage / "drop" / "big.bin"
+        target.parent.mkdir(exist_ok=True)
+        target.write_bytes(b"small")
+        monkeypatch.setattr(settings, "max_upload_bytes", 4)
+
+        resp = _put(client, "/storage/drop/big.bin", b"too large")
+
+        assert resp.status_code == 400
+        assert "EntityTooLarge" in resp.text
+        assert target.read_bytes() == b"small"
+        assert not list((storage / ".uploads").glob("tmp-*"))
+
+    def test_part_leaves_no_partial_file(self, client, storage, client_disconnects):
+        upload_id = _initiate(client, "drop/parts.bin")
+
+        resp = _put(
+            client, "/storage/drop/parts.bin", b"replacement",
+            [("partNumber", "1"), ("uploadId", upload_id)],
+        )
+
+        assert resp.status_code == 503
+        assert not (storage / ".uploads" / f"{upload_id}.part.1").exists()
+
 
 # ─── Multipart ─────────────────────────────────────────────────────────────────
 
@@ -149,7 +212,8 @@ class TestMultipartUpload:
         # parts, metadata and the temp file are cleaned up
         uploads_dir = storage / ".uploads"
         assert not list(uploads_dir.glob(f"{upload_id}*"))
-        assert not (storage / "mp" / "big.bin.tmp").exists()
+        assert not list(uploads_dir.glob("tmp-*"))
+        assert [p.name for p in (storage / "mp").iterdir() if p.suffix == ".tmp"] == []
 
     def test_complete_with_missing_part_file_is_400(self, client, storage):
         key = "mp/missing.bin"

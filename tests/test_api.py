@@ -10,6 +10,7 @@ import hashlib
 import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect, Request
 
 # ─── App setup with temp storage ───────────────────────────────────────────────
 
@@ -286,3 +287,29 @@ class TestMoveFile:
         )
         assert r.status_code == 200
         assert r.json()["message"] == "same path"
+
+
+# ─── Interrupted upload ──────────────────────────────────────────────────────────
+
+class TestInterruptedUpload:
+    def test_keeps_existing_file(self, client, auth, monkeypatch):
+        assert client.put("/files/interrupted.txt", headers=auth, content=b"original").status_code == 200
+
+        async def stream(self):
+            yield b"partial"
+            raise ClientDisconnect()
+
+        monkeypatch.setattr(Request, "stream", stream)
+        r = client.put("/files/interrupted.txt", headers=auth, content=b"replacement")
+        monkeypatch.undo()
+
+        assert r.status_code == 400
+        assert client.get("/files/interrupted.txt", headers=auth).content == b"original"
+        assert not list(config.settings.tus_upload_path.glob("tmp-*"))
+
+    def test_upload_replaces_existing_file(self, client, auth):
+        client.put("/files/replaced.txt", headers=auth, content=b"old")
+        client.put("/files/replaced.txt", headers=auth, content=b"new body")
+
+        assert client.get("/files/replaced.txt", headers=auth).content == b"new body"
+        assert not list(config.settings.tus_upload_path.glob("tmp-*"))
