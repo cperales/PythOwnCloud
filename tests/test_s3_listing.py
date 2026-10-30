@@ -134,3 +134,16 @@ class TestDelimitedListing:
         assert _prefixes(xml) == []
         assert "<IsTruncated>false</IsTruncated>" in xml
 
+
+class TestDeleteClearsStaleRow:
+    def test_listed_file_missing_from_disk_can_be_deleted(self, client, storage):
+        key = "ghost/gone.jpg"
+        assert _put(client, f"/storage/{key}", b"x").status_code == 200
+        (storage / key).unlink()
+        assert key in _keys(_list(client, prefix="ghost/"))
+
+        url, headers = _sign("DELETE", f"/storage/{key}")
+        resp = client.delete(url, headers=headers)
+
+        assert resp.status_code == 204
+        assert key not in _keys(_list(client, prefix="ghost/"))

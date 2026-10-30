@@ -462,10 +462,6 @@ async def delete_object(key: str, request: Request, _auth: str = Depends(verify_
     # Delete file
     try:
         target = safe_path(key)
-        if not target.exists():
-            return Response(
-                status_code=204,  # S3 returns 204 even if file doesn't exist
-            )
 
         if target.is_dir():
             # Delete directory recursively
@@ -478,8 +474,8 @@ async def delete_object(key: str, request: Request, _auth: str = Depends(verify_
                 except Exception:
                     pass
         else:
-            # Delete file
-            target.unlink()
+            # Delete file. S3 returns 204 even if it doesn't exist, and a stale row must go too
+            target.unlink(missing_ok=True)
             if db.get_pool() is not None:
                 try:
                     rel = str(target.relative_to(get_storage()))
