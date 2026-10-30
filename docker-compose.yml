@@ -18,5 +18,10 @@ services:
       - POC_S3_SECRET_KEY=${POC_S3_SECRET_KEY}
       - POC_S3_MAX_CONCURRENT_UPLOADS=${POC_S3_MAX_CONCURRENT_UPLOADS:-2}
       - POC_S3_UPLOAD_QUEUE_TIMEOUT_SECONDS=${POC_S3_UPLOAD_QUEUE_TIMEOUT_SECONDS:-20}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"   # rotate at 10 MB
+        max-file: "3"     # keep 3 files (~30 MB max) to protect the SD card
     mem_limit: 921m
     memswap_limit: 921m
