@@ -169,7 +169,7 @@ curl -X POST -H "X-API-Key: $KEY" http://localhost:8000/api/scan
 AWS S3-compatible API at `/storage/` for programmatic access and rclone integration. Supports:
 
 - Single-object operations: GET, PUT, HEAD, DELETE
-- Bucket operations: ListBuckets, HeadBucket, ListObjectsV2
+- Bucket operations: ListBuckets, CreateBucket (idempotent), HeadBucket, ListObjectsV2
 - Multipart uploads: InitiateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts
 - Streaming uploads with MD5 validation
 - Atomic directory creation (trailing-slash PUT)
@@ -189,8 +189,10 @@ region = us-east-1
 ```
 
 ```bash
-rclone copy ./photos poc-s3:photos/2025/
+rclone copy ./photos poc-s3:storage/photos/2025/
 ```
+
+The only bucket is `storage`; the endpoint (`http://host:8000/`) plus the bucket name gives `/storage/...`.
 
 Configuration via environment variables:
 

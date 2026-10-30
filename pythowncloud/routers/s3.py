@@ -1,9 +1,9 @@
 """
-S3-compatible API router — endpoints under /s3/ for resumable multipart uploads.
+S3-compatible API router — endpoints under /storage/ (single hardcoded bucket).
 
 Implements AWS Signature V4 auth and a subset of S3 operations:
 - Single-object: GET, PUT, HEAD, DELETE
-- Bucket listing: ListObjectsV2
+- Bucket operations: ListBuckets, CreateBucket, HeadBucket, ListObjectsV2
 - Multipart upload: CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload
 """
 
@@ -125,7 +125,16 @@ async def list_buckets(_auth: str = Depends(verify_s3_auth)):
     )
 
 
-# ─── Head Bucket ──────────────────────────────────────────────────────────
+# ─── Bucket Operations ────────────────────────────────────────────────────
+
+@router.put("/storage")
+async def create_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
+    """PUT /storage — CreateBucket. The single bucket always exists, so this is idempotent."""
+    # Drain the optional <CreateBucketConfiguration> body (LocationConstraint); it is ignored.
+    async for _ in request.stream():
+        pass
+    return Response(status_code=200, headers={"Location": "/storage"})
+
 
 @router.head("/storage")
 async def head_bucket(_auth: str = Depends(verify_s3_auth)):
@@ -158,6 +167,11 @@ async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_
     - PUT with partNumber + uploadId: multipart part upload
     - PUT with trailing slash: create empty directory
     """
+    # PUT /storage/ (empty key) is a CreateBucket call with a trailing slash —
+    # treat it as the bucket operation instead of trying to open the root dir.
+    if not key:
+        return Response(status_code=200, headers={"Location": "/storage"})
+
     # CopyObject (x-amz-copy-source header present)
     if request.headers.get("x-amz-copy-source"):
         return await _copy_object(key, request)
