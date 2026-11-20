@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 PythOwnCloud (POC) is a lightweight self-hosted cloud storage server built with FastAPI, optimized for Raspberry Pi 3 (1GB RAM, USB 2.0 storage). It exposes three protocols over a single uvicorn instance:
 
 - **REST API** (`/files/`, `/api/`, `/mkdir/`, `/dirs/`) — programmatic access with API key auth
-- **WebDAV** (`/dav/` and `/`) — native filesystem mounting with HTTP Basic Auth
-- **S3-compatible API** (`/s3/` and `/`) — AWS S3 protocol for rclone/S3Drive with Signature V4 auth
+- **WebDAV** (`/dav/`) — native filesystem mounting with HTTP Basic Auth
+- **S3-compatible API** (`/storage/`) — AWS S3 protocol for rclone/S3Drive with Signature V4 auth
 - **Web UI** (`/browse/`, `/login`) — browser-based file manager with session cookie auth
 
 ## Commands
@@ -57,7 +57,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"                       
 - `webdav.py` — full WebDAV (PROPFIND, MKCOL, MOVE, COPY, etc.)
 - `s3.py` — S3 single-object ops, bucket ops, multipart uploads
 
-**S3 and WebDAV routers are dual-mounted** at both their prefix (`/s3/`, `/dav/`) and the root (`/`) for client compatibility. S3 routing relies on auth header detection to disambiguate.
+**Router mounting**: each router is mounted once. WebDAV has the `/dav` prefix. The S3 router has no prefix: its only bucket is `storage`, so clients use `http://host:8000/` as the endpoint and objects live at `/storage/{key}`. There is no `/s3/` prefix. `main.py` detects S3 requests by their auth (`AWS4-HMAC-SHA256` header or `X-Amz-Signature` query param): the S3 logging middleware logs them, and the 404 handler answers them with an S3 XML error instead of JSON. `GET /` is taken by the `login.py` redirect to `/browse/` (registered first), so the S3 ListBuckets route never runs.
 
 **Key modules**:
 - `thumbnails.py` — ffmpeg-based WebP thumbnail generation with burst detection (defers during bulk uploads to avoid Pi 3 resource contention)
@@ -78,7 +78,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"                       
 
 ## Testing
 
-Tests use FastAPI's `TestClient` with session-scoped fixtures that override `config.settings` to point at temp directories. No running server or Docker needed. Test files: `test_api.py` (REST), `test_phase2.py` (sessions/login), `test_webdav.py` (WebDAV).
+Tests use FastAPI's `TestClient` with session-scoped fixtures that override `config.settings` to point at temp directories. No running server or Docker needed. Test files: `test_api.py` (REST), `test_phase2.py` (sessions/login), `test_webdav.py` (WebDAV), `test_s3_*.py` (S3 auth, buckets, listing, objects, uploads), `test_browse_ui.py` and `test_favicon.py` (Web UI), `test_logging.py`, `test_uploads_cleanup.py`.
 
 ## Deployment
 

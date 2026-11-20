@@ -57,7 +57,7 @@ Open `http://<your-tailscale-ip>:8000/` in a browser to access the file manager.
 
 ## WebDAV
 
-Mount as a native drive on any operating system via `/dav/` (also available at `/` for clients that don't support path prefixes).
+Mount as a native drive on any operating system via `/dav/`.
 
 ```bash
 # macOS — Finder > Go > Connect to Server
@@ -259,8 +259,8 @@ sudo tailscale set --snat-subnet-routes=false
 │    │     PythOwnCloud Server (POC)   │                   │
 │    │     FastAPI + uvicorn           │                   │
 │    │     REST API  /files/           │                   │
-│    │     WebDAV    /dav/ (and /)     │                   │
-│    │     S3        /storage/              │                   │
+│    │     WebDAV    /dav/             │                   │
+│    │     S3        /storage/         │                   │
 │    │     SQLite + LRU cache          │                   │
 │    │     ffmpeg (thumbnails)         │                   │
 │    │     ~30-50 MB RAM               │                   │

@@ -117,5 +117,4 @@ app.include_router(dirs.router)
 app.include_router(browse.router)
 app.include_router(search.router)
 app.include_router(webdav.router)
-# Removed prefixed S3 router mount
-app.include_router(s3.router)  # S3-compatible API at /storage/ (root mount only)
+app.include_router(s3.router)  # S3-compatible API at /storage/ (no prefix)
