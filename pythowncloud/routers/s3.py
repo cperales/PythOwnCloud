@@ -118,7 +118,11 @@ def _concat_parts(part_files: list[Path], temp_file: Path) -> tuple[int, str, st
 
 @router.get("/")
 async def list_buckets(_auth: str = Depends(verify_s3_auth)):
-    """GET /s3/ — ListBuckets (returns single hardcoded bucket 'storage')."""
+    """GET / — ListBuckets (returns single hardcoded bucket 'storage').
+
+    Unreachable for now: login.router registers GET / (redirect to /browse/)
+    first, and FastAPI uses the first matching route.
+    """
     return Response(
         content=build_list_buckets(settings.s3_access_key),
         media_type="application/xml",
@@ -139,13 +143,13 @@ async def create_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
 
 @router.head("/storage")
 async def head_bucket(_auth: str = Depends(verify_s3_auth)):
-    """HEAD /s3/storage — HeadBucket (return 200 if bucket exists)."""
+    """HEAD /storage — HeadBucket (return 200 if bucket exists)."""
     return Response(status_code=200)
 
 
 @router.get("/storage")
 async def get_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
-    """GET /s3/storage — ListObjectsV2 or GetBucketVersioning."""
+    """GET /storage — ListObjectsV2 or GetBucketVersioning."""
     # Handle ?versioning query (return empty/disabled versioning config)
     if "versioning" in request.query_params:
         return Response(
@@ -161,7 +165,7 @@ async def get_bucket(request: Request, _auth: str = Depends(verify_s3_auth)):
 @router.put("/storage/{key:path}")
 async def put_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
     """
-    PUT /s3/storage/{key} — Upload a file (single request or as part of multipart).
+    PUT /storage/{key} — Upload a file (single request or as part of multipart).
 
     Handles:
     - Simple PUT (no partNumber): single-file upload
@@ -375,8 +379,8 @@ async def _copy_object(dst_key: str, request: Request) -> Response:
 @router.get("/storage/{key:path}")
 async def get_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
     """
-    GET /s3/storage/{key} — Download a file or list parts.
-    GET /s3/storage/{key}?uploadId=X — ListParts for multipart upload.
+    GET /storage/{key} — Download a file or list parts.
+    GET /storage/{key}?uploadId=X — ListParts for multipart upload.
     """
     try:
         # Check for multipart list-parts first
@@ -419,7 +423,7 @@ async def get_object(key: str, request: Request, _auth: str = Depends(verify_s3_
 
 @router.head("/storage/{key:path}")
 async def head_object(key: str, _auth: str = Depends(verify_s3_auth)):
-    """HEAD /s3/storage/{key} — Get file metadata."""
+    """HEAD /storage/{key} — Get file metadata."""
     try:
         target = safe_path(key)
         if not target.exists():
@@ -447,7 +451,7 @@ async def head_object(key: str, _auth: str = Depends(verify_s3_auth)):
 @router.delete("/storage/{key:path}")
 async def delete_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
     """
-    DELETE /s3/storage/{key} — Delete a file or abort multipart upload.
+    DELETE /storage/{key} — Delete a file or abort multipart upload.
 
     Handles:
     - DELETE without uploadId: delete file
@@ -503,7 +507,7 @@ async def delete_object(key: str, request: Request, _auth: str = Depends(verify_
 @router.post("/storage/{key:path}")
 async def post_object(key: str, request: Request, _auth: str = Depends(verify_s3_auth)):
     """
-    POST /s3/storage/{key} — Initiate or complete multipart upload.
+    POST /storage/{key} — Initiate or complete multipart upload.
 
     Handles:
     - POST with ?uploads: InitiateMultipartUpload
@@ -896,7 +900,7 @@ def _continuation_token(key: str) -> str:
 
 
 async def _list_objects_v2(request: Request) -> Response:
-    """GET /s3/storage?list-type=2[&prefix=...&delimiter=...] — list objects."""
+    """GET /storage?list-type=2[&prefix=...&delimiter=...] — list objects."""
     try:
         raw_prefix = request.query_params.get("prefix", "")
         delimiter = request.query_params.get("delimiter", "")
